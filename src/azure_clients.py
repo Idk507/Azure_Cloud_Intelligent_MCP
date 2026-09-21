@@ -8,6 +8,8 @@ from .auth import build_credential
 from .config import Settings, load_settings
 
 if TYPE_CHECKING:  # pragma: no cover
+    from azure.mgmt.appservice import WebSiteManagementClient
+    from azure.mgmt.containerservice import ContainerServiceClient
     from azure.mgmt.compute import ComputeManagementClient
     from azure.mgmt.cognitiveservices import CognitiveServicesManagementClient
     from azure.mgmt.keyvault import KeyVaultManagementClient
@@ -31,6 +33,11 @@ class AzureClients:
     advisor: Any = None
     cognitive: Any = None
     ai_foundry: Any = None
+    aks: Any = None
+    appservice: Any = None
+    sql: Any = None
+    cosmos: Any = None
+    ml: Any = None
 
 
 _clients_lock = Lock()
@@ -63,6 +70,8 @@ def _build_retry_policy(settings: Settings):
 
 
 def create_azure_clients(settings: Settings) -> AzureClients:
+    from azure.mgmt.appservice import WebSiteManagementClient
+    from azure.mgmt.containerservice import ContainerServiceClient
     """Instantiate and bundle all Azure SDK management clients.
 
     Builds a credential via ``build_credential``, constructs a shared retry
@@ -136,6 +145,16 @@ def create_azure_clients(settings: Settings) -> AzureClients:
         settings.subscription_id,
         **client_kwargs,
     )
+    aks_client = ContainerServiceClient(
+        credential,
+        settings.subscription_id,
+        **client_kwargs,
+    )
+    appservice_client = WebSiteManagementClient(
+        credential,
+        settings.subscription_id,
+        **client_kwargs,
+    )
 
     return AzureClients(
         resource=resource_client,
@@ -148,6 +167,8 @@ def create_azure_clients(settings: Settings) -> AzureClients:
         advisor=advisor_client,
         cognitive=cognitive_client,
         ai_foundry=None,
+        aks=aks_client,
+        appservice=appservice_client,
     )
 
 

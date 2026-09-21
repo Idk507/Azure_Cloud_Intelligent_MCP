@@ -45,6 +45,15 @@ class ServerTestCase(unittest.TestCase):
         self.assertIn("create_ai_foundry_agent", names)
         self.assertIn("delete_ai_foundry_agent", names)
         self.assertIn("diagnose_virtual_machine", names)
+        self.assertIn("list_aks_clusters", names)
+        self.assertIn("list_function_apps", names)
+        self.assertIn("query_function_app_logs", names)
+        self.assertIn("list_sql_databases", names)
+        self.assertIn("list_cosmos_accounts", names)
+        self.assertIn("query_cosmos_items", names)
+        self.assertIn("list_ml_workspaces", names)
+        self.assertIn("list_ml_models", names)
+        self.assertIn("list_ml_jobs", names)
 
     def test_health_endpoint_returns_degraded_without_subscription(self) -> None:
         previous = os.environ.pop("AZURE_SUBSCRIPTION_ID", None)
