@@ -44,6 +44,7 @@ class ServerTestCase(unittest.TestCase):
         self.assertIn("list_ai_foundry_agents", names)
         self.assertIn("create_ai_foundry_agent", names)
         self.assertIn("delete_ai_foundry_agent", names)
+        self.assertIn("diagnose_virtual_machine", names)
 
     def test_health_endpoint_returns_degraded_without_subscription(self) -> None:
         previous = os.environ.pop("AZURE_SUBSCRIPTION_ID", None)
