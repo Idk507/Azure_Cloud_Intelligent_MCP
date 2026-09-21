@@ -1,6 +1,6 @@
 # Azure Cloud Intelligence MCP
 
-Phase 1 and Phase 2 are completed. Phase 3 Slices 3.1 through 3.4 are now implemented.
+Phase 1 and Phase 2 are completed. Phase 3 is complete, and Phase 4 advanced domain foundations are implemented.
 
 ## Current Scope (Phase 1 + Phase 3 Slice 3.1)
 
@@ -27,6 +27,16 @@ Phase 1 and Phase 2 are completed. Phase 3 Slices 3.1 through 3.4 are now implem
 - `list_ai_foundry_agents(project_endpoint, limit)`
 - `create_ai_foundry_agent(..., has_explicit_approval)`
 - `delete_ai_foundry_agent(..., has_explicit_approval)`
+- `diagnose_virtual_machine(resource_group, vm_name, ...)`
+- `list_aks_clusters(resource_group, limit)`
+- `list_function_apps(resource_group, limit)`
+- `query_function_app_logs(workspace_id, function_app_name, timespan_hours, limit)`
+- `list_sql_databases(resource_group, server_name, limit)`
+- `list_cosmos_accounts(resource_group, limit)`
+- `query_cosmos_items(account_name, database_name, container_name, query, limit)`
+- `list_ml_workspaces(resource_group, limit)`
+- `list_ml_models(workspace_name, limit)`
+- `list_ml_jobs(workspace_name, limit)`
 
 Controlled actions and sensitive-data tools require `has_explicit_approval=true`.
 

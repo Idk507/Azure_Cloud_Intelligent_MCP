@@ -28,6 +28,15 @@
 | `create_ai_foundry_agent` | `controlled_action` | `Azure AI Developer` |
 | `delete_ai_foundry_agent` | `controlled_action` | `Azure AI Developer` |
 | `diagnose_virtual_machine` | `read_only` | `Reader` plus `Monitoring Reader` |
+| `list_aks_clusters` | `read_only` | `Azure Kubernetes Service Contributor` |
+| `list_function_apps` | `read_only` | `Reader` |
+| `query_function_app_logs` | `sensitive_data` | `Log Analytics Reader` |
+| `list_sql_databases` | `read_only` | `SQL DB Contributor` |
+| `list_cosmos_accounts` | `read_only` | `Reader` |
+| `query_cosmos_items` | `sensitive_data` | `Cosmos DB Built-in Data Reader` |
+| `list_ml_workspaces` | `read_only` | `AzureML Data Scientist` |
+| `list_ml_models` | `read_only` | `AzureML Data Scientist` |
+| `list_ml_jobs` | `read_only` | `AzureML Data Scientist` |
 
 ## Data Handling Policy
 

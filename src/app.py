@@ -32,6 +32,17 @@ from .tools.ai import (
     list_openai_deployments,
 )
 from .tools.diagnostics import diagnose_virtual_machine
+from .tools.advanced import (
+    list_aks_clusters,
+    list_cosmos_accounts,
+    list_function_apps,
+    query_function_app_logs,
+    list_ml_jobs,
+    list_ml_models,
+    list_ml_workspaces,
+    list_sql_databases,
+    query_cosmos_items,
+)
 from .tools.network import (
     create_public_ip_address,
     list_network_security_groups,
@@ -69,6 +80,15 @@ FOUNDRY_LIST_TOOL_METADATA = get_tool_metadata("list_ai_foundry_agents")
 FOUNDRY_CREATE_TOOL_METADATA = get_tool_metadata("create_ai_foundry_agent")
 FOUNDRY_DELETE_TOOL_METADATA = get_tool_metadata("delete_ai_foundry_agent")
 DIAGNOSTIC_TOOL_METADATA = get_tool_metadata("diagnose_virtual_machine")
+AKS_TOOL_METADATA = get_tool_metadata("list_aks_clusters")
+FUNCTION_APPS_TOOL_METADATA = get_tool_metadata("list_function_apps")
+FUNCTION_LOGS_TOOL_METADATA = get_tool_metadata("query_function_app_logs")
+SQL_DATABASES_TOOL_METADATA = get_tool_metadata("list_sql_databases")
+COSMOS_ACCOUNTS_TOOL_METADATA = get_tool_metadata("list_cosmos_accounts")
+COSMOS_QUERY_TOOL_METADATA = get_tool_metadata("query_cosmos_items")
+ML_WORKSPACES_TOOL_METADATA = get_tool_metadata("list_ml_workspaces")
+ML_MODELS_TOOL_METADATA = get_tool_metadata("list_ml_models")
+ML_JOBS_TOOL_METADATA = get_tool_metadata("list_ml_jobs")
 
 
 TOOL_DEFINITIONS = [
@@ -445,6 +465,112 @@ TOOL_DEFINITIONS = [
         },
         "x-metadata": {"safety_class": DIAGNOSTIC_TOOL_METADATA.safety_class.value, "minimum_rbac_role": DIAGNOSTIC_TOOL_METADATA.minimum_rbac_role},
     },
+    {
+        "name": AKS_TOOL_METADATA.name,
+        "description": AKS_TOOL_METADATA.description,
+        "inputSchema": {
+            "type": "object",
+            "properties": {"resource_group": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 500}},
+            "additionalProperties": False,
+        },
+        "x-metadata": {"safety_class": AKS_TOOL_METADATA.safety_class.value, "minimum_rbac_role": AKS_TOOL_METADATA.minimum_rbac_role},
+    },
+    {
+        "name": FUNCTION_APPS_TOOL_METADATA.name,
+        "description": FUNCTION_APPS_TOOL_METADATA.description,
+        "inputSchema": {
+            "type": "object",
+            "properties": {"resource_group": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 500}},
+            "additionalProperties": False,
+        },
+        "x-metadata": {"safety_class": FUNCTION_APPS_TOOL_METADATA.safety_class.value, "minimum_rbac_role": FUNCTION_APPS_TOOL_METADATA.minimum_rbac_role},
+    },
+    {
+        "name": FUNCTION_LOGS_TOOL_METADATA.name,
+        "description": FUNCTION_LOGS_TOOL_METADATA.description,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspace_id": {"type": "string", "minLength": 1},
+                "function_app_name": {"type": "string", "minLength": 1, "maxLength": 60},
+                "timespan_hours": {"type": "integer", "minimum": 1, "maximum": 168},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 500},
+            },
+            "required": ["workspace_id", "function_app_name"],
+            "additionalProperties": False,
+        },
+        "x-metadata": {"safety_class": FUNCTION_LOGS_TOOL_METADATA.safety_class.value, "minimum_rbac_role": FUNCTION_LOGS_TOOL_METADATA.minimum_rbac_role},
+    },
+    {
+        "name": SQL_DATABASES_TOOL_METADATA.name,
+        "description": SQL_DATABASES_TOOL_METADATA.description,
+        "inputSchema": {
+            "type": "object",
+            "properties": {"resource_group": {"type": "string", "minLength": 1}, "server_name": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 500}},
+            "required": ["resource_group", "server_name"],
+            "additionalProperties": False,
+        },
+        "x-metadata": {"safety_class": SQL_DATABASES_TOOL_METADATA.safety_class.value, "minimum_rbac_role": SQL_DATABASES_TOOL_METADATA.minimum_rbac_role},
+    },
+    {
+        "name": COSMOS_ACCOUNTS_TOOL_METADATA.name,
+        "description": COSMOS_ACCOUNTS_TOOL_METADATA.description,
+        "inputSchema": {
+            "type": "object",
+            "properties": {"resource_group": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 500}},
+            "additionalProperties": False,
+        },
+        "x-metadata": {"safety_class": COSMOS_ACCOUNTS_TOOL_METADATA.safety_class.value, "minimum_rbac_role": COSMOS_ACCOUNTS_TOOL_METADATA.minimum_rbac_role},
+    },
+    {
+        "name": COSMOS_QUERY_TOOL_METADATA.name,
+        "description": COSMOS_QUERY_TOOL_METADATA.description,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "account_name": {"type": "string", "minLength": 1},
+                "database_name": {"type": "string", "minLength": 1},
+                "container_name": {"type": "string", "minLength": 1},
+                "query": {"type": "string", "minLength": 1, "maxLength": 2000},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 500},
+            },
+            "required": ["account_name", "database_name", "container_name", "query"],
+            "additionalProperties": False,
+        },
+        "x-metadata": {"safety_class": COSMOS_QUERY_TOOL_METADATA.safety_class.value, "minimum_rbac_role": COSMOS_QUERY_TOOL_METADATA.minimum_rbac_role},
+    },
+    {
+        "name": ML_WORKSPACES_TOOL_METADATA.name,
+        "description": ML_WORKSPACES_TOOL_METADATA.description,
+        "inputSchema": {
+            "type": "object",
+            "properties": {"resource_group": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 500}},
+            "additionalProperties": False,
+        },
+        "x-metadata": {"safety_class": ML_WORKSPACES_TOOL_METADATA.safety_class.value, "minimum_rbac_role": ML_WORKSPACES_TOOL_METADATA.minimum_rbac_role},
+    },
+    {
+        "name": ML_MODELS_TOOL_METADATA.name,
+        "description": ML_MODELS_TOOL_METADATA.description,
+        "inputSchema": {
+            "type": "object",
+            "properties": {"workspace_name": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 500}},
+            "required": ["workspace_name"],
+            "additionalProperties": False,
+        },
+        "x-metadata": {"safety_class": ML_MODELS_TOOL_METADATA.safety_class.value, "minimum_rbac_role": ML_MODELS_TOOL_METADATA.minimum_rbac_role},
+    },
+    {
+        "name": ML_JOBS_TOOL_METADATA.name,
+        "description": ML_JOBS_TOOL_METADATA.description,
+        "inputSchema": {
+            "type": "object",
+            "properties": {"workspace_name": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 500}},
+            "required": ["workspace_name"],
+            "additionalProperties": False,
+        },
+        "x-metadata": {"safety_class": ML_JOBS_TOOL_METADATA.safety_class.value, "minimum_rbac_role": ML_JOBS_TOOL_METADATA.minimum_rbac_role},
+    },
 ]
 
 
@@ -775,6 +901,82 @@ def diagnose_virtual_machine_tool(
         metric_names=metric_names,
         timespan_hours=timespan_hours,
     )
+
+
+@mcp.tool(name="list_aks_clusters", description=TOOL_DEFINITIONS[24]["description"])
+def list_aks_clusters_tool(resource_group: str | None = None, limit: int | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return list_aks_clusters(resource_group=resource_group, limit=limit)
+
+
+@mcp.tool(name="list_function_apps", description=TOOL_DEFINITIONS[25]["description"])
+def list_function_apps_tool(resource_group: str | None = None, limit: int | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return list_function_apps(resource_group=resource_group, limit=limit)
+
+
+@mcp.tool(name="query_function_app_logs", description=TOOL_DEFINITIONS[26]["description"])
+def query_function_app_logs_tool(
+    workspace_id: str,
+    function_app_name: str,
+    timespan_hours: int = 24,
+    limit: int = 100,
+) -> dict[str, Any]:
+    set_correlation_id()
+    return query_function_app_logs(
+        workspace_id=workspace_id,
+        function_app_name=function_app_name,
+        timespan_hours=timespan_hours,
+        limit=limit,
+    )
+
+
+@mcp.tool(name="list_sql_databases", description=TOOL_DEFINITIONS[26]["description"])
+def list_sql_databases_tool(resource_group: str, server_name: str, limit: int | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return list_sql_databases(resource_group=resource_group, server_name=server_name, limit=limit)
+
+
+@mcp.tool(name="list_cosmos_accounts", description=TOOL_DEFINITIONS[27]["description"])
+def list_cosmos_accounts_tool(resource_group: str | None = None, limit: int | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return list_cosmos_accounts(resource_group=resource_group, limit=limit)
+
+
+@mcp.tool(name="query_cosmos_items", description=TOOL_DEFINITIONS[28]["description"])
+def query_cosmos_items_tool(
+    account_name: str,
+    database_name: str,
+    container_name: str,
+    query: str,
+    limit: int = 100,
+) -> dict[str, Any]:
+    set_correlation_id()
+    return query_cosmos_items(
+        account_name=account_name,
+        database_name=database_name,
+        container_name=container_name,
+        query=query,
+        limit=limit,
+    )
+
+
+@mcp.tool(name="list_ml_workspaces", description=TOOL_DEFINITIONS[29]["description"])
+def list_ml_workspaces_tool(resource_group: str | None = None, limit: int | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return list_ml_workspaces(resource_group=resource_group, limit=limit)
+
+
+@mcp.tool(name="list_ml_models", description=TOOL_DEFINITIONS[30]["description"])
+def list_ml_models_tool(workspace_name: str, limit: int | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return list_ml_models(workspace_name=workspace_name, limit=limit)
+
+
+@mcp.tool(name="list_ml_jobs", description=TOOL_DEFINITIONS[31]["description"])
+def list_ml_jobs_tool(workspace_name: str, limit: int | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return list_ml_jobs(workspace_name=workspace_name, limit=limit)
 
 
 def create_http_app() -> FastAPI:
