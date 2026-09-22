@@ -8,7 +8,7 @@ from .auth import build_credential
 from .config import Settings, load_settings
 
 if TYPE_CHECKING:  # pragma: no cover
-    from azure.mgmt.appservice import WebSiteManagementClient
+    from azure.mgmt.web import WebSiteManagementClient
     from azure.mgmt.containerservice import ContainerServiceClient
     from azure.mgmt.compute import ComputeManagementClient
     from azure.mgmt.cognitiveservices import CognitiveServicesManagementClient
@@ -70,7 +70,7 @@ def _build_retry_policy(settings: Settings):
 
 
 def create_azure_clients(settings: Settings) -> AzureClients:
-    from azure.mgmt.appservice import WebSiteManagementClient
+    from azure.mgmt.web import WebSiteManagementClient
     from azure.mgmt.containerservice import ContainerServiceClient
     """Instantiate and bundle all Azure SDK management clients.
 

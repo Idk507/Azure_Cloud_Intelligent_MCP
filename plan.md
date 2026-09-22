@@ -262,6 +262,11 @@ No phase starts until the preceding phase's exit criteria are met.
 
 **Goal:** Deliver a repeatable, observable Azure-hosted service.
 
+**Deployment prerequisite:** The service must not be presented as a universal Azure CRUD API.
+The implemented operation boundary and missing create/update/delete capabilities are tracked in
+docs/azure-crud-matrix.md. Phase 5 deployment is limited to verified operations until that matrix
+is expanded with contracts, RBAC, approval, rollback, tests, and live evidence.
+
 ### Phase 5 Tasks
 
 - Build a multi-stage container image that runs as a non-root user with a health endpoint.
@@ -319,5 +324,5 @@ updated rather than creating a parallel plan.
 | 2 | Completed (2026-09-21) | Added Pydantic validation models, tool metadata registry, controlled-action policy foundations, timeout guard, RBAC/data-handling documentation, redaction utilities, structured audit logging with target context + safety class + error code, and expanded policy/validation/error-path/monitor tests (24 tests passing). Verification evidence documented in docs/phase2-verification.md | Controlled-action policy is scaffolding only until write/action tools are introduced |
 | 3 | Completed (implementation/review, 2026-09-21) | Added all four service slices, passed the 55-test suite, completed compile/smoke/diagnostic checks, performed live read-only subscription/resource validation, queried historical Activity Log evidence, and completed Checkpoint B review in docs/checkpoint-b-review.md | Production enablement still requires an operator-approved disposable controlled-action run with matching Activity Log evidence and a verified live Foundry adapter configuration |
 | 4 | Completed (implementation and verification, 2026-09-21) | Added `diagnose_virtual_machine`, bounded AKS and Function App inventory/log projection, SQL database inventory, constrained Cosmos SELECT queries, Azure ML workspace/model/job inventory, tests, client adapters, MCP registration, OAuth boundary documentation, and opt-in integration scope gate. Final evidence is in docs/phase4-verification.md; full suite, compilation, and smoke checks passed | Live Azure SDK calls require replacing local compatibility shims in a deployment environment with installed Azure packages and dedicated integration resources |
-| 5 | Not started | - | - |
+| 5 | In progress (deployment baseline, generic ARM CRUD, and research guidelines, 2026-09-22) | Added non-root multi-stage Dockerfile, Container Apps Bicep/CI baseline, provider/resource discovery, generic ARM get/create/update/delete by resource ID and API version, approval gates, tests, official-docs-backed CRUD matrix in docs/azure-crud-matrix.md, and the complete source-grounded roadmap in docs/azure-mcp-implementation-guidelines.md. Full suite now has 73 collected tests with one opt-in skip | Provider-specific payload/RBAC and live non-production validation remain; data-plane CRUD remains service-specific; Container Apps deployment, telemetry, rollback, and load/resilience tests remain |
 | 6 | Deferred | - | Requires separate approval |
