@@ -2,6 +2,16 @@
 
 Phase 1 and Phase 2 are completed. Phase 3 is complete, and Phase 4 advanced domain foundations are implemented.
 
+The server does not claim universal Azure CRUD. Each service exposes only the operations listed in
+the tool inventory and [docs/azure-crud-matrix.md](docs/azure-crud-matrix.md); unconfigured service
+adapters fail closed.
+
+Generic ARM control-plane CRUD is available by resource ID through `get_azure_resource`,
+`create_azure_resource`, `update_azure_resource`, and `delete_azure_resource`. Mutations require
+explicit approval and the caller must provide the provider API version and valid provider payload.
+Use `list_azure_resource_providers` and `list_azure_resources` to discover available Azure service
+providers and resource instances before performing CRUD.
+
 ## Current Scope (Phase 1 + Phase 3 Slice 3.1)
 
 - `list_resource_groups`
@@ -77,3 +87,4 @@ If dependency installation is blocked by environment policy, run the smoke test:
 
 See [docs/tunnel-options.md](docs/tunnel-options.md) for HTTPS exposure options.
 See [docs/environment-readiness.md](docs/environment-readiness.md) for readiness details.
+See [docs/phase5-deployment-baseline.md](docs/phase5-deployment-baseline.md) for the Container Apps and CI baseline.

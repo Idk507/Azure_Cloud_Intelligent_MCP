@@ -1,0 +1,7 @@
+using './main.bicep'
+
+param containerAppName = 'azure-cloud-intelligence-mcp-dev'
+param containerImage = 'REGISTRY_SERVER/azure-cloud-intelligence-mcp:VERSION'
+param logAnalyticsWorkspaceId = '/subscriptions/SUBSCRIPTION_ID/resourceGroups/RESOURCE_GROUP/providers/Microsoft.OperationalInsights/workspaces/WORKSPACE_NAME'
+param subscriptionId = 'SUBSCRIPTION_ID'
+param registryServer = 'REGISTRY_SERVER'

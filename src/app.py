@@ -14,7 +14,15 @@ from .tools.compute import (
     start_virtual_machine,
     stop_virtual_machine,
 )
-from .tools.resource_mgmt import list_resource_groups
+from .tools.resource_mgmt import (
+    create_azure_resource,
+    delete_azure_resource,
+    get_azure_resource,
+    list_azure_resource_providers,
+    list_azure_resources,
+    list_resource_groups,
+    update_azure_resource,
+)
 from .tools.storage import (
     create_storage_account,
     download_blob_content,
@@ -57,6 +65,12 @@ PROTOCOL_VERSION = "2025-06-18"
 mcp = FastMCP(SERVER_NAME)
 
 RG_TOOL_METADATA = get_tool_metadata("list_resource_groups")
+LIST_RESOURCES_TOOL_METADATA = get_tool_metadata("list_azure_resources")
+LIST_PROVIDERS_TOOL_METADATA = get_tool_metadata("list_azure_resource_providers")
+GET_RESOURCE_TOOL_METADATA = get_tool_metadata("get_azure_resource")
+CREATE_RESOURCE_TOOL_METADATA = get_tool_metadata("create_azure_resource")
+UPDATE_RESOURCE_TOOL_METADATA = get_tool_metadata("update_azure_resource")
+DELETE_RESOURCE_TOOL_METADATA = get_tool_metadata("delete_azure_resource")
 VM_TOOL_METADATA = get_tool_metadata("list_virtual_machines")
 ST_TOOL_METADATA = get_tool_metadata("list_storage_accounts")
 VM_STATUS_TOOL_METADATA = get_tool_metadata("get_virtual_machine_status")
@@ -571,6 +585,66 @@ TOOL_DEFINITIONS = [
         },
         "x-metadata": {"safety_class": ML_JOBS_TOOL_METADATA.safety_class.value, "minimum_rbac_role": ML_JOBS_TOOL_METADATA.minimum_rbac_role},
     },
+    {
+        "name": GET_RESOURCE_TOOL_METADATA.name,
+        "description": GET_RESOURCE_TOOL_METADATA.description,
+        "inputSchema": {
+            "type": "object",
+            "properties": {"resource_id": {"type": "string", "minLength": 1}, "api_version": {"type": "string", "minLength": 1, "maxLength": 32}},
+            "required": ["resource_id", "api_version"],
+            "additionalProperties": False,
+        },
+        "x-metadata": {"safety_class": GET_RESOURCE_TOOL_METADATA.safety_class.value, "minimum_rbac_role": GET_RESOURCE_TOOL_METADATA.minimum_rbac_role},
+    },
+    {
+        "name": CREATE_RESOURCE_TOOL_METADATA.name,
+        "description": CREATE_RESOURCE_TOOL_METADATA.description,
+        "inputSchema": {
+            "type": "object",
+            "properties": {"resource_id": {"type": "string", "minLength": 1}, "api_version": {"type": "string", "minLength": 1, "maxLength": 32}, "payload": {"type": "object"}, "has_explicit_approval": {"type": "boolean"}},
+            "required": ["resource_id", "api_version", "payload"],
+            "additionalProperties": False,
+        },
+        "x-metadata": {"safety_class": CREATE_RESOURCE_TOOL_METADATA.safety_class.value, "minimum_rbac_role": CREATE_RESOURCE_TOOL_METADATA.minimum_rbac_role},
+    },
+    {
+        "name": UPDATE_RESOURCE_TOOL_METADATA.name,
+        "description": UPDATE_RESOURCE_TOOL_METADATA.description,
+        "inputSchema": {
+            "type": "object",
+            "properties": {"resource_id": {"type": "string", "minLength": 1}, "api_version": {"type": "string", "minLength": 1, "maxLength": 32}, "payload": {"type": "object"}, "has_explicit_approval": {"type": "boolean"}},
+            "required": ["resource_id", "api_version", "payload"],
+            "additionalProperties": False,
+        },
+        "x-metadata": {"safety_class": UPDATE_RESOURCE_TOOL_METADATA.safety_class.value, "minimum_rbac_role": UPDATE_RESOURCE_TOOL_METADATA.minimum_rbac_role},
+    },
+    {
+        "name": DELETE_RESOURCE_TOOL_METADATA.name,
+        "description": DELETE_RESOURCE_TOOL_METADATA.description,
+        "inputSchema": {
+            "type": "object",
+            "properties": {"resource_id": {"type": "string", "minLength": 1}, "api_version": {"type": "string", "minLength": 1, "maxLength": 32}, "has_explicit_approval": {"type": "boolean"}},
+            "required": ["resource_id", "api_version"],
+            "additionalProperties": False,
+        },
+        "x-metadata": {"safety_class": DELETE_RESOURCE_TOOL_METADATA.safety_class.value, "minimum_rbac_role": DELETE_RESOURCE_TOOL_METADATA.minimum_rbac_role},
+    },
+    {
+        "name": LIST_RESOURCES_TOOL_METADATA.name,
+        "description": LIST_RESOURCES_TOOL_METADATA.description,
+        "inputSchema": {
+            "type": "object",
+            "properties": {"resource_group": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 500}},
+            "additionalProperties": False,
+        },
+        "x-metadata": {"safety_class": LIST_RESOURCES_TOOL_METADATA.safety_class.value, "minimum_rbac_role": LIST_RESOURCES_TOOL_METADATA.minimum_rbac_role},
+    },
+    {
+        "name": LIST_PROVIDERS_TOOL_METADATA.name,
+        "description": LIST_PROVIDERS_TOOL_METADATA.description,
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "x-metadata": {"safety_class": LIST_PROVIDERS_TOOL_METADATA.safety_class.value, "minimum_rbac_role": LIST_PROVIDERS_TOOL_METADATA.minimum_rbac_role},
+    },
 ]
 
 
@@ -931,19 +1005,19 @@ def query_function_app_logs_tool(
     )
 
 
-@mcp.tool(name="list_sql_databases", description=TOOL_DEFINITIONS[26]["description"])
+@mcp.tool(name="list_sql_databases", description=TOOL_DEFINITIONS[27]["description"])
 def list_sql_databases_tool(resource_group: str, server_name: str, limit: int | None = None) -> dict[str, Any]:
     set_correlation_id()
     return list_sql_databases(resource_group=resource_group, server_name=server_name, limit=limit)
 
 
-@mcp.tool(name="list_cosmos_accounts", description=TOOL_DEFINITIONS[27]["description"])
+@mcp.tool(name="list_cosmos_accounts", description=TOOL_DEFINITIONS[28]["description"])
 def list_cosmos_accounts_tool(resource_group: str | None = None, limit: int | None = None) -> dict[str, Any]:
     set_correlation_id()
     return list_cosmos_accounts(resource_group=resource_group, limit=limit)
 
 
-@mcp.tool(name="query_cosmos_items", description=TOOL_DEFINITIONS[28]["description"])
+@mcp.tool(name="query_cosmos_items", description=TOOL_DEFINITIONS[29]["description"])
 def query_cosmos_items_tool(
     account_name: str,
     database_name: str,
@@ -961,22 +1035,86 @@ def query_cosmos_items_tool(
     )
 
 
-@mcp.tool(name="list_ml_workspaces", description=TOOL_DEFINITIONS[29]["description"])
+@mcp.tool(name="list_ml_workspaces", description=TOOL_DEFINITIONS[30]["description"])
 def list_ml_workspaces_tool(resource_group: str | None = None, limit: int | None = None) -> dict[str, Any]:
     set_correlation_id()
     return list_ml_workspaces(resource_group=resource_group, limit=limit)
 
 
-@mcp.tool(name="list_ml_models", description=TOOL_DEFINITIONS[30]["description"])
+@mcp.tool(name="list_ml_models", description=TOOL_DEFINITIONS[31]["description"])
 def list_ml_models_tool(workspace_name: str, limit: int | None = None) -> dict[str, Any]:
     set_correlation_id()
     return list_ml_models(workspace_name=workspace_name, limit=limit)
 
 
-@mcp.tool(name="list_ml_jobs", description=TOOL_DEFINITIONS[31]["description"])
+@mcp.tool(name="list_ml_jobs", description=TOOL_DEFINITIONS[32]["description"])
 def list_ml_jobs_tool(workspace_name: str, limit: int | None = None) -> dict[str, Any]:
     set_correlation_id()
     return list_ml_jobs(workspace_name=workspace_name, limit=limit)
+
+
+@mcp.tool(name="get_azure_resource", description=TOOL_DEFINITIONS[33]["description"])
+def get_azure_resource_tool(resource_id: str, api_version: str) -> dict[str, Any]:
+    set_correlation_id()
+    return get_azure_resource(resource_id=resource_id, api_version=api_version)
+
+
+@mcp.tool(name="create_azure_resource", description=TOOL_DEFINITIONS[34]["description"])
+def create_azure_resource_tool(
+    resource_id: str,
+    api_version: str,
+    payload: dict[str, Any],
+    has_explicit_approval: bool = False,
+) -> dict[str, Any]:
+    set_correlation_id()
+    return create_azure_resource(
+        resource_id=resource_id,
+        api_version=api_version,
+        payload=payload,
+        has_explicit_approval=has_explicit_approval,
+    )
+
+
+@mcp.tool(name="update_azure_resource", description=TOOL_DEFINITIONS[35]["description"])
+def update_azure_resource_tool(
+    resource_id: str,
+    api_version: str,
+    payload: dict[str, Any],
+    has_explicit_approval: bool = False,
+) -> dict[str, Any]:
+    set_correlation_id()
+    return update_azure_resource(
+        resource_id=resource_id,
+        api_version=api_version,
+        payload=payload,
+        has_explicit_approval=has_explicit_approval,
+    )
+
+
+@mcp.tool(name="delete_azure_resource", description=TOOL_DEFINITIONS[36]["description"])
+def delete_azure_resource_tool(
+    resource_id: str,
+    api_version: str,
+    has_explicit_approval: bool = False,
+) -> dict[str, Any]:
+    set_correlation_id()
+    return delete_azure_resource(
+        resource_id=resource_id,
+        api_version=api_version,
+        has_explicit_approval=has_explicit_approval,
+    )
+
+
+@mcp.tool(name="list_azure_resources", description=TOOL_DEFINITIONS[37]["description"])
+def list_azure_resources_tool(resource_group: str | None = None, limit: int | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return list_azure_resources(resource_group=resource_group, limit=limit)
+
+
+@mcp.tool(name="list_azure_resource_providers", description=TOOL_DEFINITIONS[38]["description"])
+def list_azure_resource_providers_tool() -> dict[str, Any]:
+    set_correlation_id()
+    return list_azure_resource_providers()
 
 
 def create_http_app() -> FastAPI:
