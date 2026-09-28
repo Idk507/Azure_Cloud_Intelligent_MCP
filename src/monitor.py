@@ -5,7 +5,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from .utils.redaction import redact_sensitive_data
 
@@ -14,6 +14,27 @@ _correlation_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
     "correlation_id",
     default="",
 )
+ToolLifecycleHook = Callable[[str, dict[str, Any]], None]
+_tool_lifecycle_hooks: list[ToolLifecycleHook] = []
+
+
+def register_tool_lifecycle_hook(hook: ToolLifecycleHook) -> None:
+    """Register an in-process observer for audit-safe tool lifecycle events.
+
+    Hooks are observers, not policy bypasses: their failures are isolated and
+    never change the outcome of an Azure operation.
+    """
+    _tool_lifecycle_hooks.append(hook)
+
+
+def emit_tool_lifecycle_event(event: str, payload: dict[str, Any]) -> None:
+    """Notify registered hooks with redacted, correlated lifecycle metadata."""
+    safe_payload = redact_sensitive_data({**payload, "correlation_id": get_correlation_id()})
+    for hook in tuple(_tool_lifecycle_hooks):
+        try:
+            hook(event, safe_payload)
+        except Exception:
+            logging.getLogger(__name__).warning("Tool lifecycle hook failed.")
 
 
 class JsonLogFormatter(logging.Formatter):
@@ -159,3 +180,4 @@ def audit_tool_call(
     log_message = "Tool call completed." if status == "success" else "Tool call failed."
     log_fn = logger.info if status == "success" else logger.error
     log_fn(log_message, extra=payload)
+    emit_tool_lifecycle_event(f"tool.{status}", payload)

@@ -11,6 +11,7 @@ from .tool_registry import get_tool_metadata
 from .tools.compute import (
     get_virtual_machine_status,
     list_virtual_machines,
+    plan_virtual_machine_power_action,
     start_virtual_machine,
     stop_virtual_machine,
 )
@@ -20,13 +21,17 @@ from .tools.resource_mgmt import (
     get_azure_resource,
     list_azure_resource_providers,
     list_azure_resources,
+    plan_azure_resource_mutation,
     list_resource_groups,
     update_azure_resource,
 )
+from .tools.resource_graph import query_azure_resource_graph
+from .tools.deployments import get_arm_deployment_operation_status, preview_arm_template_deployment
 from .tools.storage import (
     create_storage_account,
     download_blob_content,
     list_storage_accounts,
+    plan_storage_mutation,
     upload_blob_content,
 )
 from .tools.keyvault import list_key_vaults
@@ -36,8 +41,12 @@ from .tools.ai import (
     create_ai_foundry_agent,
     delete_ai_foundry_agent,
     deploy_openai_model,
+    get_ai_foundry_agent,
     list_ai_foundry_agents,
     list_openai_deployments,
+    plan_ai_foundry_agent_mutation,
+    plan_openai_deployment,
+    update_ai_foundry_agent,
 )
 from .tools.diagnostics import diagnose_virtual_machine
 from .tools.advanced import (
@@ -56,6 +65,7 @@ from .tools.network import (
     list_network_security_groups,
     list_public_ip_addresses,
     list_virtual_networks,
+    plan_public_ip_creation,
 )
 
 SERVER_NAME = "Azure Cloud Intelligence MCP"
@@ -66,9 +76,13 @@ mcp = FastMCP(SERVER_NAME)
 
 RG_TOOL_METADATA = get_tool_metadata("list_resource_groups")
 LIST_RESOURCES_TOOL_METADATA = get_tool_metadata("list_azure_resources")
+RESOURCE_GRAPH_TOOL_METADATA = get_tool_metadata("query_azure_resource_graph")
+WHAT_IF_TOOL_METADATA = get_tool_metadata("preview_arm_template_deployment")
+DEPLOYMENT_OPERATION_TOOL_METADATA = get_tool_metadata("get_arm_deployment_operation_status")
 LIST_PROVIDERS_TOOL_METADATA = get_tool_metadata("list_azure_resource_providers")
 GET_RESOURCE_TOOL_METADATA = get_tool_metadata("get_azure_resource")
 CREATE_RESOURCE_TOOL_METADATA = get_tool_metadata("create_azure_resource")
+PLAN_RESOURCE_MUTATION_TOOL_METADATA = get_tool_metadata("plan_azure_resource_mutation")
 UPDATE_RESOURCE_TOOL_METADATA = get_tool_metadata("update_azure_resource")
 DELETE_RESOURCE_TOOL_METADATA = get_tool_metadata("delete_azure_resource")
 VM_TOOL_METADATA = get_tool_metadata("list_virtual_machines")
@@ -91,8 +105,11 @@ ADVISOR_TOOL_METADATA = get_tool_metadata("list_advisor_recommendations")
 OPENAI_LIST_TOOL_METADATA = get_tool_metadata("list_openai_deployments")
 OPENAI_DEPLOY_TOOL_METADATA = get_tool_metadata("deploy_openai_model")
 FOUNDRY_LIST_TOOL_METADATA = get_tool_metadata("list_ai_foundry_agents")
+FOUNDRY_PLAN_TOOL_METADATA = get_tool_metadata("plan_ai_foundry_agent_mutation")
+FOUNDRY_GET_TOOL_METADATA = get_tool_metadata("get_ai_foundry_agent")
 FOUNDRY_CREATE_TOOL_METADATA = get_tool_metadata("create_ai_foundry_agent")
 FOUNDRY_DELETE_TOOL_METADATA = get_tool_metadata("delete_ai_foundry_agent")
+FOUNDRY_UPDATE_TOOL_METADATA = get_tool_metadata("update_ai_foundry_agent")
 DIAGNOSTIC_TOOL_METADATA = get_tool_metadata("diagnose_virtual_machine")
 AKS_TOOL_METADATA = get_tool_metadata("list_aks_clusters")
 FUNCTION_APPS_TOOL_METADATA = get_tool_metadata("list_function_apps")
@@ -180,7 +197,7 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "resource_group": {"type": "string", "minLength": 1},
                 "vm_name": {"type": "string", "minLength": 1},
-                "has_explicit_approval": {"type": "boolean"},
+                "approval_id": {"type": "string", "minLength": 1},
             },
             "required": ["resource_group", "vm_name"],
             "additionalProperties": False,
@@ -198,7 +215,7 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "resource_group": {"type": "string", "minLength": 1},
                 "vm_name": {"type": "string", "minLength": 1},
-                "has_explicit_approval": {"type": "boolean"},
+                "approval_id": {"type": "string", "minLength": 1},
             },
             "required": ["resource_group", "vm_name"],
             "additionalProperties": False,
@@ -219,7 +236,7 @@ TOOL_DEFINITIONS = [
                 "location": {"type": "string", "minLength": 2},
                 "sku_name": {"type": "string", "minLength": 3},
                 "kind": {"type": "string", "minLength": 3},
-                "has_explicit_approval": {"type": "boolean"},
+                "approval_id": {"type": "string", "minLength": 1},
             },
             "required": ["resource_group", "account_name"],
             "additionalProperties": False,
@@ -240,7 +257,7 @@ TOOL_DEFINITIONS = [
                 "container_name": {"type": "string", "minLength": 3},
                 "blob_name": {"type": "string", "minLength": 1},
                 "content_base64": {"type": "string", "minLength": 1},
-                "has_explicit_approval": {"type": "boolean"},
+                "approval_id": {"type": "string", "minLength": 1},
             },
             "required": ["resource_group", "account_name", "container_name", "blob_name", "content_base64"],
             "additionalProperties": False,
@@ -260,7 +277,7 @@ TOOL_DEFINITIONS = [
                 "account_name": {"type": "string", "minLength": 3, "maxLength": 24},
                 "container_name": {"type": "string", "minLength": 3},
                 "blob_name": {"type": "string", "minLength": 1},
-                "has_explicit_approval": {"type": "boolean"},
+                "approval_id": {"type": "string", "minLength": 1},
             },
             "required": ["resource_group", "account_name", "container_name", "blob_name"],
             "additionalProperties": False,
@@ -312,7 +329,7 @@ TOOL_DEFINITIONS = [
                 "resource_group": {"type": "string", "minLength": 1},
                 "public_ip_name": {"type": "string", "minLength": 1, "maxLength": 80},
                 "location": {"type": "string", "minLength": 2},
-                "has_explicit_approval": {"type": "boolean"},
+                "approval_id": {"type": "string", "minLength": 1},
             },
             "required": ["resource_group", "public_ip_name", "location"],
             "additionalProperties": False,
@@ -412,7 +429,7 @@ TOOL_DEFINITIONS = [
                 "model_version": {"type": "string", "minLength": 1},
                 "sku_name": {"type": "string", "minLength": 1},
                 "capacity": {"type": "integer", "minimum": 1, "maximum": 1000},
-                "has_explicit_approval": {"type": "boolean"},
+                "approval_id": {"type": "string", "minLength": 1},
             },
             "required": ["resource_group", "account_name", "deployment_name", "model_name", "model_version"],
             "additionalProperties": False,
@@ -439,9 +456,10 @@ TOOL_DEFINITIONS = [
                 "project_endpoint": {"type": "string", "minLength": 1},
                 "agent_name": {"type": "string", "minLength": 1, "maxLength": 128},
                 "instructions": {"type": "string", "minLength": 1, "maxLength": 4000},
-                "has_explicit_approval": {"type": "boolean"},
+                "model": {"type": "string", "minLength": 1, "maxLength": 128},
+                "approval_id": {"type": "string", "minLength": 1},
             },
-            "required": ["project_endpoint", "agent_name", "instructions"],
+            "required": ["project_endpoint", "agent_name", "instructions", "model", "approval_id"],
             "additionalProperties": False,
         },
         "x-metadata": {"safety_class": FOUNDRY_CREATE_TOOL_METADATA.safety_class.value, "minimum_rbac_role": FOUNDRY_CREATE_TOOL_METADATA.minimum_rbac_role},
@@ -454,9 +472,9 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "project_endpoint": {"type": "string", "minLength": 1},
                 "agent_id": {"type": "string", "minLength": 1},
-                "has_explicit_approval": {"type": "boolean"},
+                "approval_id": {"type": "string", "minLength": 1},
             },
-            "required": ["project_endpoint", "agent_id"],
+            "required": ["project_endpoint", "agent_id", "approval_id"],
             "additionalProperties": False,
         },
         "x-metadata": {"safety_class": FOUNDRY_DELETE_TOOL_METADATA.safety_class.value, "minimum_rbac_role": FOUNDRY_DELETE_TOOL_METADATA.minimum_rbac_role},
@@ -601,8 +619,8 @@ TOOL_DEFINITIONS = [
         "description": CREATE_RESOURCE_TOOL_METADATA.description,
         "inputSchema": {
             "type": "object",
-            "properties": {"resource_id": {"type": "string", "minLength": 1}, "api_version": {"type": "string", "minLength": 1, "maxLength": 32}, "payload": {"type": "object"}, "has_explicit_approval": {"type": "boolean"}},
-            "required": ["resource_id", "api_version", "payload"],
+            "properties": {"resource_id": {"type": "string", "minLength": 1}, "api_version": {"type": "string", "minLength": 1, "maxLength": 32}, "payload": {"type": "object"}, "approval_id": {"type": "string", "minLength": 1}},
+            "required": ["resource_id", "api_version", "payload", "approval_id"],
             "additionalProperties": False,
         },
         "x-metadata": {"safety_class": CREATE_RESOURCE_TOOL_METADATA.safety_class.value, "minimum_rbac_role": CREATE_RESOURCE_TOOL_METADATA.minimum_rbac_role},
@@ -612,8 +630,8 @@ TOOL_DEFINITIONS = [
         "description": UPDATE_RESOURCE_TOOL_METADATA.description,
         "inputSchema": {
             "type": "object",
-            "properties": {"resource_id": {"type": "string", "minLength": 1}, "api_version": {"type": "string", "minLength": 1, "maxLength": 32}, "payload": {"type": "object"}, "has_explicit_approval": {"type": "boolean"}},
-            "required": ["resource_id", "api_version", "payload"],
+            "properties": {"resource_id": {"type": "string", "minLength": 1}, "api_version": {"type": "string", "minLength": 1, "maxLength": 32}, "payload": {"type": "object"}, "approval_id": {"type": "string", "minLength": 1}},
+            "required": ["resource_id", "api_version", "payload", "approval_id"],
             "additionalProperties": False,
         },
         "x-metadata": {"safety_class": UPDATE_RESOURCE_TOOL_METADATA.safety_class.value, "minimum_rbac_role": UPDATE_RESOURCE_TOOL_METADATA.minimum_rbac_role},
@@ -623,8 +641,8 @@ TOOL_DEFINITIONS = [
         "description": DELETE_RESOURCE_TOOL_METADATA.description,
         "inputSchema": {
             "type": "object",
-            "properties": {"resource_id": {"type": "string", "minLength": 1}, "api_version": {"type": "string", "minLength": 1, "maxLength": 32}, "has_explicit_approval": {"type": "boolean"}},
-            "required": ["resource_id", "api_version"],
+            "properties": {"resource_id": {"type": "string", "minLength": 1}, "api_version": {"type": "string", "minLength": 1, "maxLength": 32}, "approval_id": {"type": "string", "minLength": 1}},
+            "required": ["resource_id", "api_version", "approval_id"],
             "additionalProperties": False,
         },
         "x-metadata": {"safety_class": DELETE_RESOURCE_TOOL_METADATA.safety_class.value, "minimum_rbac_role": DELETE_RESOURCE_TOOL_METADATA.minimum_rbac_role},
@@ -644,6 +662,72 @@ TOOL_DEFINITIONS = [
         "description": LIST_PROVIDERS_TOOL_METADATA.description,
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
         "x-metadata": {"safety_class": LIST_PROVIDERS_TOOL_METADATA.safety_class.value, "minimum_rbac_role": LIST_PROVIDERS_TOOL_METADATA.minimum_rbac_role},
+    },
+    {
+        "name": RESOURCE_GRAPH_TOOL_METADATA.name,
+        "description": RESOURCE_GRAPH_TOOL_METADATA.description,
+        "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "minLength": 1, "maxLength": 2000}, "subscriptions": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "string", "minLength": 1}}, "limit": {"type": "integer", "minimum": 1, "maximum": 500}}, "required": ["query", "subscriptions"], "additionalProperties": False},
+        "x-metadata": {"safety_class": RESOURCE_GRAPH_TOOL_METADATA.safety_class.value, "minimum_rbac_role": RESOURCE_GRAPH_TOOL_METADATA.minimum_rbac_role},
+    },
+    {
+        "name": WHAT_IF_TOOL_METADATA.name,
+        "description": WHAT_IF_TOOL_METADATA.description,
+        "inputSchema": {"type": "object", "properties": {"resource_group": {"type": "string", "minLength": 1}, "deployment_name": {"type": "string", "minLength": 1}, "template": {"type": "object"}, "parameters": {"type": "object"}}, "required": ["resource_group", "deployment_name", "template"], "additionalProperties": False},
+        "x-metadata": {"safety_class": WHAT_IF_TOOL_METADATA.safety_class.value, "minimum_rbac_role": WHAT_IF_TOOL_METADATA.minimum_rbac_role},
+    },
+    {
+        "name": PLAN_RESOURCE_MUTATION_TOOL_METADATA.name,
+        "description": PLAN_RESOURCE_MUTATION_TOOL_METADATA.description,
+        "inputSchema": {"type": "object", "properties": {"operation": {"type": "string", "enum": ["create", "update", "delete"]}, "resource_id": {"type": "string", "minLength": 1}, "api_version": {"type": "string", "minLength": 1}, "payload": {"type": "object"}}, "required": ["operation", "resource_id", "api_version"], "additionalProperties": False},
+        "x-metadata": {"safety_class": PLAN_RESOURCE_MUTATION_TOOL_METADATA.safety_class.value, "minimum_rbac_role": PLAN_RESOURCE_MUTATION_TOOL_METADATA.minimum_rbac_role},
+    },
+    {
+        "name": DEPLOYMENT_OPERATION_TOOL_METADATA.name,
+        "description": DEPLOYMENT_OPERATION_TOOL_METADATA.description,
+        "inputSchema": {"type": "object", "properties": {"resource_group": {"type": "string", "minLength": 1}, "deployment_name": {"type": "string", "minLength": 1}, "operation_id": {"type": "string", "minLength": 1}}, "required": ["resource_group", "deployment_name", "operation_id"], "additionalProperties": False},
+        "x-metadata": {"safety_class": DEPLOYMENT_OPERATION_TOOL_METADATA.safety_class.value, "minimum_rbac_role": DEPLOYMENT_OPERATION_TOOL_METADATA.minimum_rbac_role},
+    },
+    {
+        "name": FOUNDRY_PLAN_TOOL_METADATA.name,
+        "description": FOUNDRY_PLAN_TOOL_METADATA.description,
+        "inputSchema": {"type": "object", "properties": {"operation": {"type": "string", "enum": ["create", "update", "delete"]}, "project_endpoint": {"type": "string", "minLength": 1}, "agent_id": {"type": "string", "minLength": 1}, "agent_name": {"type": "string", "minLength": 1}, "instructions": {"type": "string", "minLength": 1}, "model": {"type": "string", "minLength": 1}}, "required": ["operation", "project_endpoint"], "additionalProperties": False},
+        "x-metadata": {"safety_class": FOUNDRY_PLAN_TOOL_METADATA.safety_class.value, "minimum_rbac_role": FOUNDRY_PLAN_TOOL_METADATA.minimum_rbac_role},
+    },
+    {
+        "name": FOUNDRY_GET_TOOL_METADATA.name,
+        "description": FOUNDRY_GET_TOOL_METADATA.description,
+        "inputSchema": {"type": "object", "properties": {"project_endpoint": {"type": "string", "minLength": 1}, "agent_id": {"type": "string", "minLength": 1}}, "required": ["project_endpoint", "agent_id"], "additionalProperties": False},
+        "x-metadata": {"safety_class": FOUNDRY_GET_TOOL_METADATA.safety_class.value, "minimum_rbac_role": FOUNDRY_GET_TOOL_METADATA.minimum_rbac_role},
+    },
+    {
+        "name": FOUNDRY_UPDATE_TOOL_METADATA.name,
+        "description": FOUNDRY_UPDATE_TOOL_METADATA.description,
+        "inputSchema": {"type": "object", "properties": {"project_endpoint": {"type": "string", "minLength": 1}, "agent_id": {"type": "string", "minLength": 1}, "instructions": {"type": "string", "minLength": 1, "maxLength": 4000}, "model": {"type": "string", "minLength": 1, "maxLength": 128}, "approval_id": {"type": "string", "minLength": 1}}, "required": ["project_endpoint", "agent_id", "approval_id"], "additionalProperties": False},
+        "x-metadata": {"safety_class": FOUNDRY_UPDATE_TOOL_METADATA.safety_class.value, "minimum_rbac_role": FOUNDRY_UPDATE_TOOL_METADATA.minimum_rbac_role},
+    },
+    {
+        "name": "plan_virtual_machine_power_action",
+        "description": "Plan a VM start or stop and issue a single-use approval receipt.",
+        "inputSchema": {"type": "object", "properties": {"resource_group": {"type": "string", "minLength": 1}, "vm_name": {"type": "string", "minLength": 1}, "action": {"type": "string", "enum": ["start", "stop"]}}, "required": ["resource_group", "vm_name", "action"], "additionalProperties": False},
+        "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Reader"},
+    },
+    {
+        "name": "plan_storage_mutation",
+        "description": "Plan a storage mutation or sensitive blob download and issue an approval receipt.",
+        "inputSchema": {"type": "object", "properties": {"operation": {"type": "string", "enum": ["create_storage_account", "upload_blob_content", "download_blob_content"]}, "resource_group": {"type": "string", "minLength": 1}, "account_name": {"type": "string", "minLength": 1}, "container_name": {"type": "string"}, "blob_name": {"type": "string"}, "content_base64": {"type": "string"}, "location": {"type": "string"}, "sku_name": {"type": "string"}, "kind": {"type": "string"}}, "required": ["operation", "resource_group", "account_name"], "additionalProperties": False},
+        "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Reader"},
+    },
+    {
+        "name": "plan_public_ip_creation",
+        "description": "Plan a static Standard public IP and issue a single-use approval receipt.",
+        "inputSchema": {"type": "object", "properties": {"resource_group": {"type": "string", "minLength": 1}, "public_ip_name": {"type": "string", "minLength": 1}, "location": {"type": "string", "minLength": 1}}, "required": ["resource_group", "public_ip_name", "location"], "additionalProperties": False},
+        "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Reader"},
+    },
+    {
+        "name": "plan_openai_deployment",
+        "description": "Plan an Azure OpenAI deployment and issue a single-use approval receipt.",
+        "inputSchema": {"type": "object", "properties": {"resource_group": {"type": "string", "minLength": 1}, "account_name": {"type": "string", "minLength": 1}, "deployment_name": {"type": "string", "minLength": 1}, "model_name": {"type": "string", "minLength": 1}, "model_version": {"type": "string", "minLength": 1}, "sku_name": {"type": "string"}, "capacity": {"type": "integer", "minimum": 1}}, "required": ["resource_group", "account_name", "deployment_name", "model_name", "model_version"], "additionalProperties": False},
+        "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Reader"},
     },
 ]
 
@@ -712,17 +796,41 @@ def get_virtual_machine_status_tool(resource_group: str, vm_name: str) -> dict[s
     return get_virtual_machine_status(resource_group=resource_group, vm_name=vm_name)
 
 
+@mcp.tool(name="plan_virtual_machine_power_action", description="Plan a start or stop operation and issue a one-time approval receipt.")
+def plan_virtual_machine_power_action_tool(resource_group: str, vm_name: str, action: str) -> dict[str, Any]:
+    set_correlation_id()
+    return plan_virtual_machine_power_action(resource_group, vm_name, action)
+
+
+@mcp.tool(name="plan_storage_mutation", description="Plan a storage account mutation, blob upload, or sensitive blob download.")
+def plan_storage_mutation_tool(operation: str, resource_group: str, account_name: str, container_name: str | None = None, blob_name: str | None = None, content_base64: str | None = None, location: str | None = None, sku_name: str = "Standard_LRS", kind: str = "StorageV2") -> dict[str, Any]:
+    set_correlation_id()
+    return plan_storage_mutation(operation, resource_group, account_name, container_name, blob_name, content_base64, location, sku_name, kind)
+
+
+@mcp.tool(name="plan_public_ip_creation", description="Plan static public IP creation and issue a one-time approval receipt.")
+def plan_public_ip_creation_tool(resource_group: str, public_ip_name: str, location: str) -> dict[str, Any]:
+    set_correlation_id()
+    return plan_public_ip_creation(resource_group, public_ip_name, location)
+
+
+@mcp.tool(name="plan_openai_deployment", description="Plan an Azure OpenAI deployment and issue a one-time approval receipt.")
+def plan_openai_deployment_tool(resource_group: str, account_name: str, deployment_name: str, model_name: str, model_version: str, sku_name: str = "GlobalStandard", capacity: int = 1) -> dict[str, Any]:
+    set_correlation_id()
+    return plan_openai_deployment(resource_group, account_name, deployment_name, model_name, model_version, sku_name, capacity)
+
+
 @mcp.tool(name="start_virtual_machine", description=TOOL_DEFINITIONS[4]["description"])
 def start_virtual_machine_tool(
     resource_group: str,
     vm_name: str,
-    has_explicit_approval: bool = False,
+    approval_id: str | None = None,
 ) -> dict[str, Any]:
     set_correlation_id()
     return start_virtual_machine(
         resource_group=resource_group,
         vm_name=vm_name,
-        has_explicit_approval=has_explicit_approval,
+        approval_id=approval_id,
     )
 
 
@@ -730,13 +838,13 @@ def start_virtual_machine_tool(
 def stop_virtual_machine_tool(
     resource_group: str,
     vm_name: str,
-    has_explicit_approval: bool = False,
+    approval_id: str | None = None,
 ) -> dict[str, Any]:
     set_correlation_id()
     return stop_virtual_machine(
         resource_group=resource_group,
         vm_name=vm_name,
-        has_explicit_approval=has_explicit_approval,
+        approval_id=approval_id,
     )
 
 
@@ -747,7 +855,7 @@ def create_storage_account_tool(
     location: str | None = None,
     sku_name: str = "Standard_LRS",
     kind: str = "StorageV2",
-    has_explicit_approval: bool = False,
+    approval_id: str | None = None,
 ) -> dict[str, Any]:
     set_correlation_id()
     return create_storage_account(
@@ -756,7 +864,7 @@ def create_storage_account_tool(
         location=location,
         sku_name=sku_name,
         kind=kind,
-        has_explicit_approval=has_explicit_approval,
+        approval_id=approval_id,
     )
 
 
@@ -767,7 +875,7 @@ def upload_blob_content_tool(
     container_name: str,
     blob_name: str,
     content_base64: str,
-    has_explicit_approval: bool = False,
+    approval_id: str | None = None,
 ) -> dict[str, Any]:
     set_correlation_id()
     return upload_blob_content(
@@ -776,7 +884,7 @@ def upload_blob_content_tool(
         container_name=container_name,
         blob_name=blob_name,
         content_base64=content_base64,
-        has_explicit_approval=has_explicit_approval,
+        approval_id=approval_id,
     )
 
 
@@ -786,7 +894,7 @@ def download_blob_content_tool(
     account_name: str,
     container_name: str,
     blob_name: str,
-    has_explicit_approval: bool = False,
+    approval_id: str | None = None,
 ) -> dict[str, Any]:
     set_correlation_id()
     return download_blob_content(
@@ -794,7 +902,7 @@ def download_blob_content_tool(
         account_name=account_name,
         container_name=container_name,
         blob_name=blob_name,
-        has_explicit_approval=has_explicit_approval,
+        approval_id=approval_id,
     )
 
 
@@ -821,14 +929,14 @@ def create_public_ip_address_tool(
     resource_group: str,
     public_ip_name: str,
     location: str,
-    has_explicit_approval: bool = False,
+    approval_id: str | None = None,
 ) -> dict[str, Any]:
     set_correlation_id()
     return create_public_ip_address(
         resource_group=resource_group,
         public_ip_name=public_ip_name,
         location=location,
-        has_explicit_approval=has_explicit_approval,
+        approval_id=approval_id,
     )
 
 
@@ -906,7 +1014,7 @@ def deploy_openai_model_tool(
     model_version: str,
     sku_name: str = "GlobalStandard",
     capacity: int = 1,
-    has_explicit_approval: bool = False,
+    approval_id: str | None = None,
 ) -> dict[str, Any]:
     set_correlation_id()
     return deploy_openai_model(
@@ -917,7 +1025,7 @@ def deploy_openai_model_tool(
         model_version=model_version,
         sku_name=sku_name,
         capacity=capacity,
-        has_explicit_approval=has_explicit_approval,
+        approval_id=approval_id,
     )
 
 
@@ -927,19 +1035,27 @@ def list_ai_foundry_agents_tool(project_endpoint: str, limit: int = 50) -> dict[
     return list_ai_foundry_agents(project_endpoint=project_endpoint, limit=limit)
 
 
+@mcp.tool(name="plan_ai_foundry_agent_mutation", description=FOUNDRY_PLAN_TOOL_METADATA.description)
+def plan_ai_foundry_agent_mutation_tool(operation: str, project_endpoint: str, agent_id: str | None = None, agent_name: str | None = None, instructions: str | None = None, model: str | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return plan_ai_foundry_agent_mutation(operation, project_endpoint, agent_id, agent_name, instructions, model)
+
+
 @mcp.tool(name="create_ai_foundry_agent", description=TOOL_DEFINITIONS[21]["description"])
 def create_ai_foundry_agent_tool(
     project_endpoint: str,
     agent_name: str,
     instructions: str,
-    has_explicit_approval: bool = False,
+    model: str,
+    approval_id: str,
 ) -> dict[str, Any]:
     set_correlation_id()
     return create_ai_foundry_agent(
         project_endpoint=project_endpoint,
         agent_name=agent_name,
         instructions=instructions,
-        has_explicit_approval=has_explicit_approval,
+        model=model,
+        approval_id=approval_id,
     )
 
 
@@ -947,14 +1063,32 @@ def create_ai_foundry_agent_tool(
 def delete_ai_foundry_agent_tool(
     project_endpoint: str,
     agent_id: str,
-    has_explicit_approval: bool = False,
+    approval_id: str,
 ) -> dict[str, Any]:
     set_correlation_id()
     return delete_ai_foundry_agent(
         project_endpoint=project_endpoint,
         agent_id=agent_id,
-        has_explicit_approval=has_explicit_approval,
+        approval_id=approval_id,
     )
+
+
+@mcp.tool(name="get_ai_foundry_agent", description=FOUNDRY_GET_TOOL_METADATA.description)
+def get_ai_foundry_agent_tool(project_endpoint: str, agent_id: str) -> dict[str, Any]:
+    set_correlation_id()
+    return get_ai_foundry_agent(project_endpoint=project_endpoint, agent_id=agent_id)
+
+
+@mcp.tool(name="update_ai_foundry_agent", description=FOUNDRY_UPDATE_TOOL_METADATA.description)
+def update_ai_foundry_agent_tool(
+    project_endpoint: str,
+    agent_id: str,
+    approval_id: str,
+    instructions: str | None = None,
+    model: str | None = None,
+) -> dict[str, Any]:
+    set_correlation_id()
+    return update_ai_foundry_agent(project_endpoint, agent_id, instructions, model, approval_id)
 
 
 @mcp.tool(name="diagnose_virtual_machine", description=TOOL_DEFINITIONS[23]["description"])
@@ -1059,19 +1193,25 @@ def get_azure_resource_tool(resource_id: str, api_version: str) -> dict[str, Any
     return get_azure_resource(resource_id=resource_id, api_version=api_version)
 
 
+@mcp.tool(name="plan_azure_resource_mutation", description=PLAN_RESOURCE_MUTATION_TOOL_METADATA.description)
+def plan_azure_resource_mutation_tool(operation: str, resource_id: str, api_version: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return plan_azure_resource_mutation(operation, resource_id, api_version, payload)
+
+
 @mcp.tool(name="create_azure_resource", description=TOOL_DEFINITIONS[34]["description"])
 def create_azure_resource_tool(
     resource_id: str,
     api_version: str,
     payload: dict[str, Any],
-    has_explicit_approval: bool = False,
+    approval_id: str,
 ) -> dict[str, Any]:
     set_correlation_id()
     return create_azure_resource(
         resource_id=resource_id,
         api_version=api_version,
         payload=payload,
-        has_explicit_approval=has_explicit_approval,
+        approval_id=approval_id,
     )
 
 
@@ -1080,14 +1220,14 @@ def update_azure_resource_tool(
     resource_id: str,
     api_version: str,
     payload: dict[str, Any],
-    has_explicit_approval: bool = False,
+    approval_id: str,
 ) -> dict[str, Any]:
     set_correlation_id()
     return update_azure_resource(
         resource_id=resource_id,
         api_version=api_version,
         payload=payload,
-        has_explicit_approval=has_explicit_approval,
+        approval_id=approval_id,
     )
 
 
@@ -1095,13 +1235,13 @@ def update_azure_resource_tool(
 def delete_azure_resource_tool(
     resource_id: str,
     api_version: str,
-    has_explicit_approval: bool = False,
+    approval_id: str,
 ) -> dict[str, Any]:
     set_correlation_id()
     return delete_azure_resource(
         resource_id=resource_id,
         api_version=api_version,
-        has_explicit_approval=has_explicit_approval,
+        approval_id=approval_id,
     )
 
 
@@ -1109,6 +1249,24 @@ def delete_azure_resource_tool(
 def list_azure_resources_tool(resource_group: str | None = None, limit: int | None = None) -> dict[str, Any]:
     set_correlation_id()
     return list_azure_resources(resource_group=resource_group, limit=limit)
+
+
+@mcp.tool(name="query_azure_resource_graph", description=RESOURCE_GRAPH_TOOL_METADATA.description)
+def query_azure_resource_graph_tool(query: str, subscriptions: list[str], limit: int = 100) -> dict[str, Any]:
+    set_correlation_id()
+    return query_azure_resource_graph(query=query, subscriptions=subscriptions, limit=limit)
+
+
+@mcp.tool(name="preview_arm_template_deployment", description=WHAT_IF_TOOL_METADATA.description)
+def preview_arm_template_deployment_tool(resource_group: str, deployment_name: str, template: dict[str, Any], parameters: dict[str, Any] | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return preview_arm_template_deployment(resource_group, deployment_name, template, parameters)
+
+
+@mcp.tool(name="get_arm_deployment_operation_status", description=DEPLOYMENT_OPERATION_TOOL_METADATA.description)
+def get_arm_deployment_operation_status_tool(resource_group: str, deployment_name: str, operation_id: str) -> dict[str, Any]:
+    set_correlation_id()
+    return get_arm_deployment_operation_status(resource_group, deployment_name, operation_id)
 
 
 @mcp.tool(name="list_azure_resource_providers", description=TOOL_DEFINITIONS[38]["description"])

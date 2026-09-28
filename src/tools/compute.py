@@ -10,12 +10,27 @@ from .. import azure_clients
 from ..config import load_settings
 from ..monitor import audit_tool_call
 from ..policies import execute_with_policy
+from .approval_workflow import consume_plan, issue_plan, subscription_scope
 from ..tool_registry import get_tool_metadata
 from ..utils.errors import as_tool_error
 from ..utils.runtime import run_with_timeout
 from ..validation import PaginationInput, ResourceGroupInput, VirtualMachineTargetInput, to_validation_error_payload
 
 logger = logging.getLogger(__name__)
+
+
+def plan_virtual_machine_power_action(resource_group: str, vm_name: str, action: str) -> dict[str, Any]:
+    """Create a bound approval receipt for starting or stopping one VM."""
+    try:
+        validated = VirtualMachineTargetInput(resource_group=resource_group, vm_name=vm_name)
+        if action not in {"start", "stop"}:
+            raise ValueError("action must be 'start' or 'stop'.")
+    except (ValidationError, ValueError) as exc:
+        return to_validation_error_payload(exc) if isinstance(exc, ValidationError) else {"ok": False, "error": {"code": "VALIDATION_ERROR", "message": str(exc)}}
+    settings = load_settings()
+    tool_name = f"{action}_virtual_machine"
+    target = {"resource_group": validated.resource_group, "vm_name": validated.vm_name, "action": action}
+    return issue_plan(tool_name, subscription_scope(settings.subscription_id, validated.resource_group), target, {})
 
 
 def _approval_required_payload(tool_name: str, reason: str) -> dict[str, Any]:
@@ -295,7 +310,7 @@ def get_virtual_machine_status(resource_group: str, vm_name: str) -> dict[str, A
 def start_virtual_machine(
     resource_group: str,
     vm_name: str,
-    has_explicit_approval: bool = False,
+    approval_id: str | None = None,
 ) -> dict[str, Any]:
     """Start a virtual machine (controlled action).
 
@@ -337,6 +352,10 @@ def start_virtual_machine(
             return to_validation_error_payload(exc)
 
         settings = load_settings()
+        target = {"resource_group": validated.resource_group, "vm_name": validated.vm_name, "action": "start"}
+        approval_error = consume_plan(approval_id, tool_name, subscription_scope(settings.subscription_id, validated.resource_group), target, {})
+        if approval_error:
+            return approval_error
 
         def _callback() -> dict[str, Any]:
             clients = azure_clients.get_azure_clients()
@@ -353,7 +372,7 @@ def start_virtual_machine(
 
         policy_result, operation_result = execute_with_policy(
             tool_metadata=metadata,
-            has_explicit_approval=has_explicit_approval,
+            has_explicit_approval=True,
             callback=_callback,
         )
         if not policy_result.allowed:
@@ -414,7 +433,7 @@ def start_virtual_machine(
 def stop_virtual_machine(
     resource_group: str,
     vm_name: str,
-    has_explicit_approval: bool = False,
+    approval_id: str | None = None,
 ) -> dict[str, Any]:
     """Stop (power off) a virtual machine (controlled action).
 
@@ -454,6 +473,10 @@ def stop_virtual_machine(
             return to_validation_error_payload(exc)
 
         settings = load_settings()
+        target = {"resource_group": validated.resource_group, "vm_name": validated.vm_name, "action": "stop"}
+        approval_error = consume_plan(approval_id, tool_name, subscription_scope(settings.subscription_id, validated.resource_group), target, {})
+        if approval_error:
+            return approval_error
 
         def _callback() -> dict[str, Any]:
             clients = azure_clients.get_azure_clients()
@@ -470,7 +493,7 @@ def stop_virtual_machine(
 
         policy_result, operation_result = execute_with_policy(
             tool_metadata=metadata,
-            has_explicit_approval=has_explicit_approval,
+            has_explicit_approval=True,
             callback=_callback,
         )
         if not policy_result.allowed:

@@ -12,6 +12,7 @@ from ..auth import build_credential
 from ..config import load_settings
 from ..monitor import audit_tool_call
 from ..policies import execute_with_policy
+from .approval_workflow import consume_plan, issue_plan, subscription_scope
 from ..tool_registry import get_tool_metadata
 from ..utils.errors import as_tool_error
 from ..utils.runtime import run_with_timeout
@@ -24,6 +25,27 @@ from ..validation import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def plan_storage_mutation(operation: str, resource_group: str, account_name: str, container_name: str | None = None, blob_name: str | None = None, content_base64: str | None = None, location: str | None = None, sku_name: str = "Standard_LRS", kind: str = "StorageV2") -> dict[str, Any]:
+    """Issue a request-bound receipt for a storage write or sensitive read."""
+    try:
+        if operation == "create_storage_account":
+            value = StorageAccountCreateInput(resource_group=resource_group, account_name=account_name, location=location, sku_name=sku_name, kind=kind)
+            settings = load_settings()
+            target = {"resource_group": value.resource_group, "account_name": value.account_name, "location": value.location or settings.default_location}
+            payload = {"sku_name": value.sku_name, "kind": value.kind}
+        elif operation in {"upload_blob_content", "download_blob_content"}:
+            value = BlobTransferInput(resource_group=resource_group, account_name=account_name, container_name=container_name, blob_name=blob_name)
+            target = {"resource_group": value.resource_group, "account_name": value.account_name, "container_name": value.container_name, "blob_name": value.blob_name}
+            payload = {"content_base64": content_base64} if operation == "upload_blob_content" else {}
+            if operation == "upload_blob_content":
+                base64.b64decode(content_base64 or "", validate=True)
+        else:
+            raise ValueError("operation must be create_storage_account, upload_blob_content, or download_blob_content.")
+    except (ValidationError, ValueError) as exc:
+        return to_validation_error_payload(exc) if isinstance(exc, ValidationError) else {"ok": False, "error": {"code": "VALIDATION_ERROR", "message": str(exc)}}
+    return issue_plan(operation, subscription_scope(load_settings().subscription_id, value.resource_group), target, payload)
 
 
 def _approval_required_payload(tool_name: str, reason: str) -> dict[str, Any]:
@@ -205,7 +227,7 @@ def create_storage_account(
     location: str | None = None,
     sku_name: str = "Standard_LRS",
     kind: str = "StorageV2",
-    has_explicit_approval: bool = False,
+    approval_id: str | None = None,
 ) -> dict[str, Any]:
     """Create an Azure storage account (controlled action).
 
@@ -259,6 +281,10 @@ def create_storage_account(
 
         settings = load_settings()
         effective_location = validated.location or settings.default_location
+        target = {"resource_group": validated.resource_group, "account_name": validated.account_name, "location": effective_location}
+        approval_error = consume_plan(approval_id, tool_name, subscription_scope(settings.subscription_id, validated.resource_group), target, {"sku_name": validated.sku_name, "kind": validated.kind})
+        if approval_error:
+            return approval_error
 
         def _callback() -> dict[str, Any]:
             clients = azure_clients.get_azure_clients()
@@ -280,7 +306,7 @@ def create_storage_account(
 
         policy_result, operation_result = execute_with_policy(
             tool_metadata=metadata,
-            has_explicit_approval=has_explicit_approval,
+            has_explicit_approval=True,
             callback=_callback,
         )
         if not policy_result.allowed:
@@ -348,7 +374,7 @@ def upload_blob_content(
     container_name: str,
     blob_name: str,
     content_base64: str,
-    has_explicit_approval: bool = False,
+    approval_id: str | None = None,
 ) -> dict[str, Any]:
     """Upload blob bytes decoded from a base64 payload (controlled action).
 
@@ -408,6 +434,10 @@ def upload_blob_content(
             }
 
         settings = load_settings()
+        target = {"resource_group": validated.resource_group, "account_name": validated.account_name, "container_name": validated.container_name, "blob_name": validated.blob_name}
+        approval_error = consume_plan(approval_id, tool_name, subscription_scope(settings.subscription_id, validated.resource_group), target, {"content_base64": content_base64})
+        if approval_error:
+            return approval_error
 
         def _callback() -> dict[str, Any]:
             blob_service = _build_blob_service_client(validated.account_name)
@@ -422,7 +452,7 @@ def upload_blob_content(
 
         policy_result, operation_result = execute_with_policy(
             tool_metadata=metadata,
-            has_explicit_approval=has_explicit_approval,
+            has_explicit_approval=True,
             callback=_callback,
         )
         if not policy_result.allowed:
@@ -493,7 +523,7 @@ def download_blob_content(
     account_name: str,
     container_name: str,
     blob_name: str,
-    has_explicit_approval: bool = False,
+    approval_id: str | None = None,
 ) -> dict[str, Any]:
     """Download blob bytes and return them as a base64-encoded string (sensitive data).
 
@@ -545,6 +575,10 @@ def download_blob_content(
             return to_validation_error_payload(exc)
 
         settings = load_settings()
+        target = {"resource_group": validated.resource_group, "account_name": validated.account_name, "container_name": validated.container_name, "blob_name": validated.blob_name}
+        approval_error = consume_plan(approval_id, tool_name, subscription_scope(settings.subscription_id, validated.resource_group), target, {})
+        if approval_error:
+            return approval_error
 
         def _callback() -> dict[str, Any]:
             blob_service = _build_blob_service_client(validated.account_name)
@@ -565,7 +599,7 @@ def download_blob_content(
 
         policy_result, operation_result = execute_with_policy(
             tool_metadata=metadata,
-            has_explicit_approval=has_explicit_approval,
+            has_explicit_approval=True,
             callback=_callback,
         )
         if not policy_result.allowed:

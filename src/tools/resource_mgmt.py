@@ -7,9 +7,10 @@ from typing import Any
 from pydantic import ValidationError
 
 from .. import azure_clients
+from ..approvals import get_approval_store
 from ..config import load_settings
 from ..monitor import audit_tool_call
-from ..policies import execute_with_policy
+from ..policies import build_approval_plan
 from ..tool_registry import get_tool_metadata
 from ..utils.errors import as_tool_error
 from ..utils.runtime import run_with_timeout
@@ -27,6 +28,16 @@ def _approval_required_payload(tool_name: str, reason: str) -> dict[str, Any]:
             "details": {"tool": tool_name, "reason": reason},
         },
     }
+
+
+def _approval_invalid_payload(tool_name: str, reason: str) -> dict[str, Any]:
+    return {"ok": False, "error": {"code": "APPROVAL_INVALID", "message": "Approval ID is invalid for this request.", "details": {"tool": tool_name, "reason": reason}}}
+
+
+def _resource_scope(resource_id: str) -> str:
+    parts = resource_id.strip("/").split("/")
+    subscription_index = parts.index("subscriptions")
+    return f"/subscriptions/{parts[subscription_index + 1]}"
 
 
 def _validate_generic_request(resource_id: str, api_version: str, payload: dict[str, Any] | None = None) -> tuple[str, str, dict[str, Any] | None]:
@@ -291,7 +302,26 @@ def get_azure_resource(resource_id: str, api_version: str) -> dict[str, Any]:
         return error_payload
 
 
-def _mutate_azure_resource(tool_name: str, resource_id: str, api_version: str, payload: dict[str, Any] | None, has_explicit_approval: bool, operation: str) -> dict[str, Any]:
+def plan_azure_resource_mutation(operation: str, resource_id: str, api_version: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Create and store a short-lived approval plan for one generic ARM mutation."""
+    tool_name = f"{operation}_azure_resource"
+    try:
+        if operation not in {"create", "update", "delete"}:
+            raise ValueError("operation must be create, update, or delete.")
+        validated_id, version, validated_payload = _validate_generic_request(resource_id, api_version, payload)
+        if operation in {"create", "update"} and not validated_payload:
+            raise ValueError("payload is required for create and update.")
+        target = {"resource_id": validated_id, "api_version": version, "operation": operation}
+        plan = build_approval_plan(tool_name, _resource_scope(validated_id), target, validated_payload or {})
+        get_approval_store().issue(plan)
+        return {"ok": True, "operation": operation, "approval": {"approval_id": plan.approval_id, "request_hash": plan.request_hash, "expires_at": plan.expires_at.isoformat(), "target": target}}
+    except (ValidationError, ValueError) as exc:
+        if isinstance(exc, ValidationError):
+            return to_validation_error_payload(exc)
+        return {"ok": False, "error": {"code": "VALIDATION_ERROR", "message": str(exc)}}
+
+
+def _mutate_azure_resource(tool_name: str, resource_id: str, api_version: str, payload: dict[str, Any] | None, approval_id: str | None, operation: str) -> dict[str, Any]:
     started = time.perf_counter()
     metadata = get_tool_metadata(tool_name)
     try:
@@ -304,6 +334,12 @@ def _mutate_azure_resource(tool_name: str, resource_id: str, api_version: str, p
                 return to_validation_error_payload(exc)
             return {"ok": False, "error": {"code": "VALIDATION_ERROR", "message": str(exc)}}
         settings = load_settings()
+        target = {"resource_id": validated_id, "api_version": version, "operation": operation}
+        if not approval_id:
+            return {"ok": False, "error": {"code": "APPROVAL_ID_REQUIRED", "message": "Create an approval plan and provide its approval_id before executing this action."}}
+        approval = get_approval_store().consume(approval_id, tool_name, _resource_scope(validated_id), target, validated_payload or {})
+        if not approval.allowed:
+            return _approval_invalid_payload(tool_name, approval.reason)
 
         def callback() -> dict[str, Any]:
             clients = azure_clients.get_azure_clients()
@@ -317,11 +353,7 @@ def _mutate_azure_resource(tool_name: str, resource_id: str, api_version: str, p
             result = run_with_timeout(callback=lambda: poller.result(), timeout_seconds=settings.request_timeout_seconds)
             return {"completed": True, "result": result}
 
-        policy_result, operation_result = execute_with_policy(tool_metadata=metadata, has_explicit_approval=has_explicit_approval, callback=callback)
-        target = {"resource_id": validated_id, "api_version": version, "operation": operation}
-        if not policy_result.allowed:
-            audit_tool_call(logger, tool_name=tool_name, status="error", duration_ms=round((time.perf_counter() - started) * 1000, 2), safety_class=metadata.safety_class.value, target_context=target, error_code="APPROVAL_REQUIRED")
-            return _approval_required_payload(tool_name, policy_result.reason)
+        operation_result = callback()
         audit_tool_call(logger, tool_name=tool_name, status="success", duration_ms=round((time.perf_counter() - started) * 1000, 2), safety_class=metadata.safety_class.value, target_context=target)
         return {"ok": True, **target, "status": "completed", "completed": bool(operation_result and operation_result["completed"])}
     except Exception as exc:  # pragma: no cover
@@ -330,13 +362,13 @@ def _mutate_azure_resource(tool_name: str, resource_id: str, api_version: str, p
         return error_payload
 
 
-def create_azure_resource(resource_id: str, api_version: str, payload: dict[str, Any], has_explicit_approval: bool = False) -> dict[str, Any]:
-    return _mutate_azure_resource("create_azure_resource", resource_id, api_version, payload, has_explicit_approval, "create")
+def create_azure_resource(resource_id: str, api_version: str, payload: dict[str, Any], approval_id: str | None = None) -> dict[str, Any]:
+    return _mutate_azure_resource("create_azure_resource", resource_id, api_version, payload, approval_id, "create")
 
 
-def update_azure_resource(resource_id: str, api_version: str, payload: dict[str, Any], has_explicit_approval: bool = False) -> dict[str, Any]:
-    return _mutate_azure_resource("update_azure_resource", resource_id, api_version, payload, has_explicit_approval, "update")
+def update_azure_resource(resource_id: str, api_version: str, payload: dict[str, Any], approval_id: str | None = None) -> dict[str, Any]:
+    return _mutate_azure_resource("update_azure_resource", resource_id, api_version, payload, approval_id, "update")
 
 
-def delete_azure_resource(resource_id: str, api_version: str, has_explicit_approval: bool = False) -> dict[str, Any]:
-    return _mutate_azure_resource("delete_azure_resource", resource_id, api_version, None, has_explicit_approval, "delete")
+def delete_azure_resource(resource_id: str, api_version: str, approval_id: str | None = None) -> dict[str, Any]:
+    return _mutate_azure_resource("delete_azure_resource", resource_id, api_version, None, approval_id, "delete")

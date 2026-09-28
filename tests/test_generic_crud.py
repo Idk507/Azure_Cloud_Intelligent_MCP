@@ -5,6 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from src import approvals
 from src.tools import resource_mgmt
 
 
@@ -19,6 +20,7 @@ class GenericCrudTestCase(unittest.TestCase):
             begin_update_by_id=lambda *args, **kwargs: SimpleNamespace(result=lambda: {"ok": True}),
             begin_delete_by_id=lambda *args, **kwargs: SimpleNamespace(result=lambda: None),
         )))
+        approvals.reset_approval_store()
 
     def tearDown(self) -> None:
         self.env_patch.stop()
@@ -29,18 +31,23 @@ class GenericCrudTestCase(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["resource"]["id"], self.resource_id)
 
-    def test_mutations_require_approval_and_execute_when_approved(self) -> None:
+    def test_mutations_require_matching_single_use_approval_plan(self) -> None:
         payload = {"location": "eastus", "properties": {"kind": "StorageV2"}}
         with patch.object(resource_mgmt.azure_clients, "get_azure_clients", return_value=self.clients):
             denied = resource_mgmt.update_azure_resource(self.resource_id, "2023-01-01", payload)
-            created = resource_mgmt.create_azure_resource(self.resource_id, "2023-01-01", payload, has_explicit_approval=True)
-            updated = resource_mgmt.update_azure_resource(self.resource_id, "2023-01-01", payload, has_explicit_approval=True)
-            deleted = resource_mgmt.delete_azure_resource(self.resource_id, "2023-01-01", has_explicit_approval=True)
+            create_plan = resource_mgmt.plan_azure_resource_mutation("create", self.resource_id, "2023-01-01", payload)
+            update_plan = resource_mgmt.plan_azure_resource_mutation("update", self.resource_id, "2023-01-01", payload)
+            delete_plan = resource_mgmt.plan_azure_resource_mutation("delete", self.resource_id, "2023-01-01")
+            created = resource_mgmt.create_azure_resource(self.resource_id, "2023-01-01", payload, approval_id=create_plan["approval"]["approval_id"])
+            updated = resource_mgmt.update_azure_resource(self.resource_id, "2023-01-01", payload, approval_id=update_plan["approval"]["approval_id"])
+            deleted = resource_mgmt.delete_azure_resource(self.resource_id, "2023-01-01", approval_id=delete_plan["approval"]["approval_id"])
+            replay = resource_mgmt.delete_azure_resource(self.resource_id, "2023-01-01", approval_id=delete_plan["approval"]["approval_id"])
 
-        self.assertEqual(denied["error"]["code"], "APPROVAL_REQUIRED")
+        self.assertEqual(denied["error"]["code"], "APPROVAL_ID_REQUIRED")
         self.assertTrue(created["ok"])
         self.assertTrue(updated["ok"])
         self.assertTrue(deleted["ok"])
+        self.assertEqual(replay["error"]["code"], "APPROVAL_INVALID")
 
     def test_generic_read_rejects_malformed_id(self) -> None:
         result = resource_mgmt.get_azure_resource("not-an-id", "2023-01-01")

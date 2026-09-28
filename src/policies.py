@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import uuid
 from dataclasses import dataclass
-from typing import Callable, TypeVar
+from datetime import datetime, timedelta, timezone
+from typing import Any, Callable, Mapping, TypeVar
 
 from .tool_registry import SafetyClass, ToolMetadata
 
@@ -12,6 +16,71 @@ T = TypeVar("T")
 class ActionPolicyResult:
     allowed: bool
     reason: str
+
+
+@dataclass(frozen=True)
+class ApprovalPlan:
+    """An immutable, short-lived receipt for a reviewed Azure mutation.
+
+    The receipt does not authorize execution by itself. Task 2 will persist and
+    consume it exactly once; binding the hash here prevents an approval from
+    being reused for a changed tool, target, scope, or payload.
+    """
+
+    approval_id: str
+    tool_name: str
+    scope: str
+    target: Mapping[str, Any]
+    payload: Mapping[str, Any]
+    request_hash: str
+    created_at: datetime
+    expires_at: datetime
+
+
+def canonical_request_hash(
+    tool_name: str,
+    scope: str,
+    target: Mapping[str, Any],
+    payload: Mapping[str, Any],
+) -> str:
+    """Return a stable SHA-256 hash for a mutation's reviewed intent."""
+    canonical = json.dumps(
+        {"payload": payload, "scope": scope, "target": target, "tool_name": tool_name},
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def build_approval_plan(
+    tool_name: str,
+    scope: str,
+    target: Mapping[str, Any],
+    payload: Mapping[str, Any],
+    ttl_seconds: int = 300,
+) -> ApprovalPlan:
+    """Create a review receipt for a controlled operation without executing it."""
+    normalized_tool = tool_name.strip()
+    normalized_scope = scope.strip()
+    if not normalized_tool or not normalized_scope:
+        raise ValueError("tool_name and scope must be non-empty.")
+    if ttl_seconds < 1 or ttl_seconds > 3600:
+        raise ValueError("ttl_seconds must be between 1 and 3600.")
+
+    created_at = datetime.now(timezone.utc)
+    copied_target = dict(target)
+    copied_payload = dict(payload)
+    return ApprovalPlan(
+        approval_id=str(uuid.uuid4()),
+        tool_name=normalized_tool,
+        scope=normalized_scope,
+        target=copied_target,
+        payload=copied_payload,
+        request_hash=canonical_request_hash(normalized_tool, normalized_scope, copied_target, copied_payload),
+        created_at=created_at,
+        expires_at=created_at + timedelta(seconds=ttl_seconds),
+    )
 
 
 def evaluate_tool_call_policy(

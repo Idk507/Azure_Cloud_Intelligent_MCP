@@ -5,6 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from src import approvals
 from src.tools import ai
 
 
@@ -28,21 +29,29 @@ class FakeFoundryAdapter:
     def list_agents(self, project_endpoint: str):
         return [{"id": "agent-1", "name": "ops", "status": "active"}]
 
-    def create_agent(self, project_endpoint: str, agent_name: str, instructions: str):
-        return {"id": "agent-2", "name": agent_name}
+    def create_agent(self, project_endpoint: str, agent_name: str, instructions: str, model: str):
+        return {"id": "agent-2", "name": agent_name, "model": model}
 
     def delete_agent(self, project_endpoint: str, agent_id: str):
         return True
 
+    def get_agent(self, project_endpoint: str, agent_id: str):
+        return {"id": agent_id, "name": "ops", "instructions": "Inspect health.", "model": "gpt-4o"}
+
+    def update_agent(self, project_endpoint: str, agent_id: str, instructions: str | None = None, model: str | None = None):
+        return {"id": agent_id, "instructions": instructions, "model": model}
+
 
 class Slice34TestCase(unittest.TestCase):
     def setUp(self) -> None:
+        approvals.reset_approval_store()
         self.env_patch = patch.dict(
             os.environ,
             {"AZURE_SUBSCRIPTION_ID": "sub-123"},
             clear=False,
         )
         self.env_patch.start()
+        approvals.reset_approval_store()
         self.clients = SimpleNamespace(
             cognitive=SimpleNamespace(deployments=FakeDeployments()),
             ai_foundry=None,
@@ -67,7 +76,6 @@ class Slice34TestCase(unittest.TestCase):
                 deployment_name="chat",
                 model_name="gpt-4o",
                 model_version="2024-08-06",
-                has_explicit_approval=False,
             )
 
         self.assertFalse(result["ok"])
@@ -81,7 +89,7 @@ class Slice34TestCase(unittest.TestCase):
                 deployment_name="chat",
                 model_name="gpt-4o",
                 model_version="2024-08-06",
-                has_explicit_approval=True,
+                approval_id=ai.plan_openai_deployment("rg-a", "account", "chat", "gpt-4o", "2024-08-06")["approval"]["approval_id"],
             )
 
         self.assertTrue(result["ok"])
@@ -102,25 +110,43 @@ class Slice34TestCase(unittest.TestCase):
                 project_endpoint=self.endpoint,
                 agent_name="ops",
                 instructions="Inspect health.",
-                has_explicit_approval=False,
+                model="gpt-4o",
+            )
+            create_plan = ai.plan_ai_foundry_agent_mutation(
+                operation="create", project_endpoint=self.endpoint, agent_name="ops", instructions="Inspect health.", model="gpt-4o"
             )
             created = ai.create_ai_foundry_agent(
                 project_endpoint=self.endpoint,
                 agent_name="ops",
                 instructions="Inspect health.",
-                has_explicit_approval=True,
+                model="gpt-4o",
+                approval_id=create_plan["approval"]["approval_id"],
             )
+            delete_plan = ai.plan_ai_foundry_agent_mutation(operation="delete", project_endpoint=self.endpoint, agent_id="agent-1")
             deleted = ai.delete_ai_foundry_agent(
                 project_endpoint=self.endpoint,
                 agent_id="agent-1",
-                has_explicit_approval=True,
+                approval_id=delete_plan["approval"]["approval_id"],
+            )
+            read = ai.get_ai_foundry_agent(project_endpoint=self.endpoint, agent_id="agent-1")
+            update_plan = ai.plan_ai_foundry_agent_mutation(
+                operation="update", project_endpoint=self.endpoint, agent_id="agent-1", instructions="Inspect production health."
+            )
+            updated = ai.update_ai_foundry_agent(
+                project_endpoint=self.endpoint,
+                agent_id="agent-1",
+                instructions="Inspect production health.",
+                approval_id=update_plan["approval"]["approval_id"],
             )
 
         self.assertTrue(listed["ok"])
         self.assertEqual(listed["agents"][0]["id"], "agent-1")
-        self.assertEqual(denied["error"]["code"], "APPROVAL_REQUIRED")
+        self.assertEqual(denied["error"]["code"], "APPROVAL_ID_REQUIRED")
         self.assertTrue(created["ok"])
         self.assertTrue(deleted["deleted"])
+        self.assertEqual(read["agent"]["id"], "agent-1")
+        self.assertTrue(updated["ok"])
+        self.assertEqual(updated["agent"]["instructions"], "Inspect production health.")
 
 
 if __name__ == "__main__":

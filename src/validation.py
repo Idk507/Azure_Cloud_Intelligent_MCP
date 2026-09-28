@@ -306,10 +306,16 @@ class FoundryProjectInput(BaseModel):
 class FoundryAgentCreateInput(FoundryProjectInput):
     agent_name: str = Field(min_length=1, max_length=128)
     instructions: str = Field(min_length=1, max_length=4000)
+    model: str = Field(min_length=1, max_length=128)
 
 
 class FoundryAgentTargetInput(FoundryProjectInput):
     agent_id: str = Field(min_length=1, max_length=256)
+
+
+class FoundryAgentUpdateInput(FoundryAgentTargetInput):
+    instructions: str | None = Field(default=None, min_length=1, max_length=4000)
+    model: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 def to_validation_error_payload(exc: ValidationError) -> dict[str, object]:

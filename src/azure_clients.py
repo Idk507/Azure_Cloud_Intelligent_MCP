@@ -38,6 +38,7 @@ class AzureClients:
     sql: Any = None
     cosmos: Any = None
     ml: Any = None
+    resource_graph: Any = None
 
 
 _clients_lock = Lock()
@@ -155,6 +156,8 @@ def create_azure_clients(settings: Settings) -> AzureClients:
         settings.subscription_id,
         **client_kwargs,
     )
+    from .foundry_adapter import FoundryAgentServiceAdapter
+    from .resource_graph_adapter import AzureResourceGraphAdapter
 
     return AzureClients(
         resource=resource_client,
@@ -166,9 +169,10 @@ def create_azure_clients(settings: Settings) -> AzureClients:
         cost=cost_client,
         advisor=advisor_client,
         cognitive=cognitive_client,
-        ai_foundry=None,
+        ai_foundry=FoundryAgentServiceAdapter(),
         aks=aks_client,
         appservice=appservice_client,
+        resource_graph=AzureResourceGraphAdapter(credential),
     )
 
 

@@ -10,12 +10,27 @@ from .. import azure_clients
 from ..config import load_settings
 from ..monitor import audit_tool_call
 from ..policies import execute_with_policy
+from .approval_workflow import consume_plan, issue_plan, subscription_scope
 from ..tool_registry import get_tool_metadata
 from ..utils.errors import as_tool_error
 from ..utils.runtime import run_with_timeout
 from ..validation import AzureLocationInput, PaginationInput, ResourceGroupInput, to_validation_error_payload
 
 logger = logging.getLogger(__name__)
+
+
+def plan_public_ip_creation(resource_group: str, public_ip_name: str, location: str) -> dict[str, Any]:
+    """Create an approval receipt for one static Standard public IP."""
+    try:
+        rg = ResourceGroupInput(resource_group=resource_group)
+        region = AzureLocationInput(location=location)
+        name = public_ip_name.strip()
+        if not name or len(name) > 80:
+            raise ValueError("public_ip_name must be 1-80 characters.")
+    except (ValidationError, ValueError) as exc:
+        return to_validation_error_payload(exc) if isinstance(exc, ValidationError) else {"ok": False, "error": {"code": "VALIDATION_ERROR", "message": str(exc)}}
+    target = {"resource_group": rg.resource_group, "public_ip_name": name, "location": region.location}
+    return issue_plan("create_public_ip_address", subscription_scope(load_settings().subscription_id, rg.resource_group), target, {})
 
 
 def _resolve_limit(limit: int | None) -> int:
@@ -236,7 +251,7 @@ def create_public_ip_address(
     resource_group: str,
     public_ip_name: str,
     location: str,
-    has_explicit_approval: bool = False,
+    approval_id: str | None = None,
 ) -> dict[str, Any]:
     """Create a static Standard-SKU public IP address (controlled action).
 
@@ -283,6 +298,10 @@ def create_public_ip_address(
             return {"ok": False, "error": {"code": "VALIDATION_ERROR", "message": str(exc)}}
 
         settings = load_settings()
+        target = {"resource_group": validated_rg.resource_group, "public_ip_name": public_ip_name.strip(), "location": validated_location.location}
+        approval_error = consume_plan(approval_id, tool_name, subscription_scope(settings.subscription_id, validated_rg.resource_group), target, {})
+        if approval_error:
+            return approval_error
 
         def callback() -> dict[str, Any]:
             clients = azure_clients.get_azure_clients()
@@ -302,14 +321,9 @@ def create_public_ip_address(
 
         policy_result, operation_result = execute_with_policy(
             tool_metadata=metadata,
-            has_explicit_approval=has_explicit_approval,
+            has_explicit_approval=True,
             callback=callback,
         )
-        target = {
-            "resource_group": validated_rg.resource_group,
-            "public_ip_name": public_ip_name.strip(),
-            "location": validated_location.location,
-        }
         if not policy_result.allowed:
             audit_tool_call(
                 logger,

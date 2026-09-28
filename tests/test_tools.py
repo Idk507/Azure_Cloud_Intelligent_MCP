@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from azure.core.exceptions import HttpResponseError
 
+from src import approvals
 from src.tools import compute, keyvault, network, resource_mgmt, storage
 
 
@@ -154,6 +155,7 @@ class _FakeBlobServiceClient:
 
 class ToolsTestCase(unittest.TestCase):
     def setUp(self) -> None:
+        approvals.reset_approval_store()
         self.env_patch = patch.dict(
             os.environ,
             {
@@ -265,28 +267,30 @@ class ToolsTestCase(unittest.TestCase):
 
     def test_start_virtual_machine_requires_approval(self) -> None:
         with patch.object(compute.azure_clients, "get_azure_clients", side_effect=AssertionError("should not call azure")):
-            result = compute.start_virtual_machine(resource_group="rg-a", vm_name="vm-a", has_explicit_approval=False)
+            result = compute.start_virtual_machine(resource_group="rg-a", vm_name="vm-a")
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "APPROVAL_REQUIRED")
 
     def test_start_virtual_machine_with_approval(self) -> None:
         with patch.object(compute.azure_clients, "get_azure_clients", return_value=self._fake_clients()):
-            result = compute.start_virtual_machine(resource_group="rg-a", vm_name="vm-a", has_explicit_approval=True)
+            plan = compute.plan_virtual_machine_power_action("rg-a", "vm-a", "start")
+            result = compute.start_virtual_machine(resource_group="rg-a", vm_name="vm-a", approval_id=plan["approval"]["approval_id"])
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["status"], "accepted")
 
     def test_stop_virtual_machine_with_approval(self) -> None:
         with patch.object(compute.azure_clients, "get_azure_clients", return_value=self._fake_clients()):
-            result = compute.stop_virtual_machine(resource_group="rg-a", vm_name="vm-a", has_explicit_approval=True)
+            plan = compute.plan_virtual_machine_power_action("rg-a", "vm-a", "stop")
+            result = compute.stop_virtual_machine(resource_group="rg-a", vm_name="vm-a", approval_id=plan["approval"]["approval_id"])
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["status"], "accepted")
 
     def test_stop_virtual_machine_requires_approval(self) -> None:
         with patch.object(compute.azure_clients, "get_azure_clients", side_effect=AssertionError("should not call azure")):
-            result = compute.stop_virtual_machine(resource_group="rg-a", vm_name="vm-a", has_explicit_approval=False)
+            result = compute.stop_virtual_machine(resource_group="rg-a", vm_name="vm-a")
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "APPROVAL_REQUIRED")
@@ -297,7 +301,6 @@ class ToolsTestCase(unittest.TestCase):
                 resource_group="rg-a",
                 account_name="stacc2",
                 location="eastus",
-                has_explicit_approval=False,
             )
 
         self.assertFalse(result["ok"])
@@ -309,7 +312,7 @@ class ToolsTestCase(unittest.TestCase):
                 resource_group="rg-a",
                 account_name="stacc2",
                 location="eastus",
-                has_explicit_approval=True,
+                approval_id=storage.plan_storage_mutation("create_storage_account", "rg-a", "stacc2", location="eastus")["approval"]["approval_id"],
             )
 
         self.assertTrue(result["ok"])
@@ -323,7 +326,6 @@ class ToolsTestCase(unittest.TestCase):
                 container_name="container-a",
                 blob_name="a.txt",
                 content_base64=base64.b64encode(b"hello").decode("ascii"),
-                has_explicit_approval=False,
             )
 
         self.assertFalse(result["ok"])
@@ -338,7 +340,7 @@ class ToolsTestCase(unittest.TestCase):
                 container_name="container-a",
                 blob_name="a.txt",
                 content_base64=base64.b64encode(b"hello").decode("ascii"),
-                has_explicit_approval=True,
+                approval_id=storage.plan_storage_mutation("upload_blob_content", "rg-a", "stacc2", "container-a", "a.txt", base64.b64encode(b"hello").decode("ascii"))["approval"]["approval_id"],
             )
 
         self.assertTrue(result["ok"])
@@ -354,7 +356,7 @@ class ToolsTestCase(unittest.TestCase):
                 account_name="stacc2",
                 container_name="container-a",
                 blob_name="a.txt",
-                has_explicit_approval=True,
+                approval_id=storage.plan_storage_mutation("download_blob_content", "rg-a", "stacc2", "container-a", "a.txt")["approval"]["approval_id"],
             )
 
         self.assertTrue(result["ok"])
@@ -368,7 +370,6 @@ class ToolsTestCase(unittest.TestCase):
                 account_name="stacc2",
                 container_name="container-a",
                 blob_name="a.txt",
-                has_explicit_approval=False,
             )
 
         self.assertFalse(result["ok"])
@@ -401,7 +402,6 @@ class ToolsTestCase(unittest.TestCase):
                 resource_group="rg-a",
                 public_ip_name="pip-a",
                 location="eastus",
-                has_explicit_approval=False,
             )
 
         self.assertFalse(result["ok"])
@@ -413,7 +413,7 @@ class ToolsTestCase(unittest.TestCase):
                 resource_group="rg-a",
                 public_ip_name="pip-a",
                 location="eastus",
-                has_explicit_approval=True,
+                approval_id=network.plan_public_ip_creation("rg-a", "pip-a", "eastus")["approval"]["approval_id"],
             )
 
         self.assertTrue(result["ok"])

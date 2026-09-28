@@ -4,7 +4,7 @@ import json
 import logging
 import unittest
 
-from src.monitor import JsonLogFormatter, audit_tool_call, set_correlation_id
+from src.monitor import JsonLogFormatter, audit_tool_call, emit_tool_lifecycle_event, register_tool_lifecycle_hook, set_correlation_id
 
 
 class _CaptureHandler(logging.Handler):
@@ -17,6 +17,15 @@ class _CaptureHandler(logging.Handler):
 
 
 class MonitorTestCase(unittest.TestCase):
+    def test_lifecycle_hook_receives_redacted_correlated_payload(self) -> None:
+        received = []
+        register_tool_lifecycle_hook(lambda event, payload: received.append((event, payload)))
+        set_correlation_id("hook-test")
+        emit_tool_lifecycle_event("tool.success", {"token": "secret", "tool_name": "example"})
+        event, payload = received[-1]
+        self.assertEqual(event, "tool.success")
+        self.assertEqual(payload["correlation_id"], "hook-test")
+        self.assertNotEqual(payload["token"], "secret")
     def test_audit_log_redacts_sensitive_fields(self) -> None:
         set_correlation_id("test-correlation-id")
 
