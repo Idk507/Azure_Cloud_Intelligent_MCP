@@ -65,6 +65,16 @@ class ServerTestCase(unittest.TestCase):
         self.assertIn("plan_storage_mutation", names)
         self.assertIn("plan_public_ip_creation", names)
         self.assertIn("plan_openai_deployment", names)
+        self.assertIn("get_telemetry_snapshot", names)
+        self.assertIn("list_role_assignments", names)
+        self.assertIn("list_policy_definitions", names)
+        self.assertIn("list_policy_assignments", names)
+        self.assertIn("list_policy_compliance_states", names)
+        self.assertIn("list_ai_foundry_models", names)
+        self.assertIn("list_ai_foundry_connections", names)
+        self.assertIn("get_ai_foundry_trace_status", names)
+        self.assertIn("plan_ai_foundry_connection_deletion", names)
+        self.assertIn("delete_ai_foundry_project_connection", names)
 
     def test_health_endpoint_returns_degraded_without_subscription(self) -> None:
         previous = os.environ.pop("AZURE_SUBSCRIPTION_ID", None)

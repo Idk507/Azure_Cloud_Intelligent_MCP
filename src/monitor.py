@@ -4,6 +4,7 @@ import contextvars
 import json
 import logging
 import uuid
+from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -16,6 +17,31 @@ _correlation_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
 )
 ToolLifecycleHook = Callable[[str, dict[str, Any]], None]
 _tool_lifecycle_hooks: list[ToolLifecycleHook] = []
+_tool_metrics: Counter[tuple[str, str, str]] = Counter()
+_tool_duration_totals: Counter[tuple[str, str]] = Counter()
+
+
+def telemetry_snapshot() -> dict[str, Any]:
+    """Return bounded, redacted in-process RED metrics for MCP operations.
+
+    Labels are restricted to tool name, outcome, and safety class; request
+    parameters, resource identifiers, and payloads can never become metric
+    dimensions. An external OpenTelemetry exporter can subscribe through the
+    lifecycle-hook API without changing the request path.
+    """
+    rows = []
+    for (tool_name, status, safety_class), count in sorted(_tool_metrics.items()):
+        total = _tool_duration_totals[(tool_name, status)]
+        rows.append({"tool_name": tool_name, "status": status, "safety_class": safety_class,
+                     "calls": count, "duration_ms_total": round(total, 2),
+                     "duration_ms_average": round(total / count, 2) if count else 0})
+    return {"ok": True, "metrics": rows, "metric_scope": "process_local", "exporter_configured": False}
+
+
+def reset_telemetry() -> None:
+    """Clear local metrics for isolated tests; not intended for MCP callers."""
+    _tool_metrics.clear()
+    _tool_duration_totals.clear()
 
 
 def register_tool_lifecycle_hook(hook: ToolLifecycleHook) -> None:
@@ -176,6 +202,10 @@ def audit_tool_call(
         payload["target_context"] = redact_sensitive_data(target_context)
     if error_code is not None:
         payload["error_code"] = error_code
+
+    metric_key = (tool_name, status, safety_class)
+    _tool_metrics[metric_key] += 1
+    _tool_duration_totals[(tool_name, status)] += duration_ms
 
     log_message = "Tool call completed." if status == "success" else "Tool call failed."
     log_fn = logger.info if status == "success" else logger.error

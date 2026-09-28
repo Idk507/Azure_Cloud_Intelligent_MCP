@@ -26,6 +26,12 @@ class FakeDeployments:
 
 
 class FakeFoundryAdapter:
+    def list_models(self, project_endpoint: str):
+        return [{"id": "model-1", "name": "gpt-4o", "type": "model", "api_key": "must-not-leak"}]
+
+    def list_connections(self, project_endpoint: str):
+        return [{"id": "connection-1", "name": "search", "type": "azure_ai_search", "connection_string": "must-not-leak"}]
+
     def list_agents(self, project_endpoint: str):
         return [{"id": "agent-1", "name": "ops", "status": "active"}]
 
@@ -101,6 +107,23 @@ class Slice34TestCase(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "AI_FOUNDRY_NOT_CONFIGURED")
+
+    def test_foundry_model_and_connection_inventory_redacts_credentials(self) -> None:
+        self.clients.ai_foundry = FakeFoundryAdapter()
+        with patch.object(ai.azure_clients, "get_azure_clients", return_value=self.clients):
+            models = ai.list_ai_foundry_models(self.endpoint)
+            connections = ai.list_ai_foundry_connections(self.endpoint)
+        self.assertTrue(models["ok"])
+        self.assertTrue(connections["ok"])
+        self.assertNotIn("api_key", models["models"][0])
+        self.assertNotIn("connection_string", connections["connections"][0])
+
+    def test_foundry_trace_status_never_returns_connection_values(self) -> None:
+        with patch.dict(os.environ, {"APPLICATIONINSIGHTS_CONNECTION_STRING": "InstrumentationKey=secret"}, clear=False):
+            result = ai.get_ai_foundry_trace_status(self.endpoint)
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["application_insights_configured"])
+        self.assertNotIn("InstrumentationKey", str(result))
 
     def test_foundry_agent_lifecycle_uses_adapter_and_approval(self) -> None:
         self.clients.ai_foundry = FakeFoundryAdapter()

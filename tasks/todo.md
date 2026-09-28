@@ -54,6 +54,7 @@
 ## Phase 3
 
 - [ ] Task 7: Add RBAC and Azure Policy read-only discovery.
+  - Progress: Role assignments, policy definitions/assignments, and bounded Policy Insights compliance reads are implemented.
   - Acceptance: Roles, assignments, policy definitions/assignments, and compliance results are bounded and scope-validated.
   - Verify: Mocked management-client tests and minimum-role documentation.
   - Dependencies: Task 3.
@@ -62,6 +63,7 @@
 ## Phase 4
 
 - [ ] Task 8: Add Foundry model/deployment and project-connection discovery.
+  - Progress: Bounded model, Azure OpenAI deployment, and connection discovery are implemented behind the Foundry adapter.
   - Acceptance: Project endpoint validation, no credential values returned, model/deployment/connection reads are paginated.
   - Verify: Adapter contract tests.
   - Dependencies: Tasks 2 and 6.
@@ -74,6 +76,7 @@
   - Files likely touched: `src/foundry_adapter.py`, `src/tools/ai.py`, `src/validation.py`, `tests/test_foundry.py`.
 
 - [ ] Task 10: Add Foundry evaluation and tracing-status tools.
+  - Progress: Redacted tracing readiness status is implemented; evaluation reads and approved creation remain.
   - Acceptance: Evaluation reads are bounded; evaluation creation is HITL-protected; tracing reports configuration status without exposing connection strings.
   - Verify: Adapter contract tests and opt-in project smoke test.
   - Dependencies: Tasks 6 and 9.

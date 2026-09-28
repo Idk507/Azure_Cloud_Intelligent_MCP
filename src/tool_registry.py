@@ -21,6 +21,14 @@ class ToolMetadata:
 
 
 TOOL_REGISTRY: dict[str, ToolMetadata] = {
+    "delete_ai_foundry_project_connection": ToolMetadata(name="delete_ai_foundry_project_connection", description="Delete a Foundry project connection after single-use approval.", safety_class=SafetyClass.CONTROLLED_ACTION, minimum_rbac_role="Cognitive Services Contributor", owner_module="src.tools.ai", docs_reference="docs/foundry-agent-service.md"),
+    "get_ai_foundry_trace_status": ToolMetadata(name="get_ai_foundry_trace_status", description="Report Foundry tracing readiness without exposing connection values.", safety_class=SafetyClass.READ_ONLY, minimum_rbac_role="Foundry User", owner_module="src.tools.ai", docs_reference="docs/foundry-agent-service.md"),
+    "list_ai_foundry_models": ToolMetadata(name="list_ai_foundry_models", description="List bounded Microsoft Foundry model metadata.", safety_class=SafetyClass.READ_ONLY, minimum_rbac_role="Foundry User", owner_module="src.tools.ai", docs_reference="docs/foundry-agent-service.md"),
+    "list_ai_foundry_connections": ToolMetadata(name="list_ai_foundry_connections", description="List bounded Microsoft Foundry connection metadata without credential values.", safety_class=SafetyClass.READ_ONLY, minimum_rbac_role="Foundry User", owner_module="src.tools.ai", docs_reference="docs/foundry-agent-service.md"),
+    "list_role_assignments": ToolMetadata(name="list_role_assignments", description="List bounded RBAC role assignments at a validated scope.", safety_class=SafetyClass.READ_ONLY, minimum_rbac_role="Reader", owner_module="src.tools.governance", docs_reference="docs/security-rbac.md"),
+    "list_policy_definitions": ToolMetadata(name="list_policy_definitions", description="List bounded Azure Policy definition metadata.", safety_class=SafetyClass.READ_ONLY, minimum_rbac_role="Reader", owner_module="src.tools.governance", docs_reference="docs/security-rbac.md"),
+    "list_policy_assignments": ToolMetadata(name="list_policy_assignments", description="List bounded Azure Policy assignment metadata at a validated scope.", safety_class=SafetyClass.READ_ONLY, minimum_rbac_role="Reader", owner_module="src.tools.governance", docs_reference="docs/security-rbac.md"),
+    "list_policy_compliance_states": ToolMetadata(name="list_policy_compliance_states", description="List bounded latest Azure Policy compliance states.", safety_class=SafetyClass.READ_ONLY, minimum_rbac_role="Resource Policy Contributor or Reader", owner_module="src.tools.governance", docs_reference="docs/security-rbac.md"),
     "list_resource_groups": ToolMetadata(
         name="list_resource_groups",
         description="List Azure resource groups in the current subscription.",

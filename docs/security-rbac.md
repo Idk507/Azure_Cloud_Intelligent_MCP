@@ -5,6 +5,10 @@
 | Tool | Safety class | Minimum RBAC role |
 | --- | --- | --- |
 | `list_resource_groups` | `read_only` | `Reader` |
+| `list_role_assignments` | `read_only` | `Reader` |
+| `list_policy_definitions` | `read_only` | `Reader` |
+| `list_policy_assignments` | `read_only` | `Reader` |
+| `list_policy_compliance_states` | `read_only` | `Resource Policy Contributor` or `Reader` |
 | `list_virtual_machines` | `read_only` | `Reader` (or `Virtual Machine Contributor`) |
 | `get_virtual_machine_status` | `read_only` | `Reader` (or `Virtual Machine Contributor`) |
 | `start_virtual_machine` | `controlled_action` | `Virtual Machine Contributor` |

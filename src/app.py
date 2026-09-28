@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from mcp.server.fastmcp import FastMCP
 
 from .config import ConfigError, load_settings
-from .monitor import configure_logging, set_correlation_id
+from .monitor import configure_logging, set_correlation_id, telemetry_snapshot
 from .tool_registry import get_tool_metadata
 from .tools.compute import (
     get_virtual_machine_status,
@@ -40,11 +40,16 @@ from .tools.cost import get_cost_summary, list_advisor_recommendations
 from .tools.ai import (
     create_ai_foundry_agent,
     delete_ai_foundry_agent,
+    delete_ai_foundry_project_connection,
     deploy_openai_model,
     get_ai_foundry_agent,
+    get_ai_foundry_trace_status,
     list_ai_foundry_agents,
+    list_ai_foundry_connections,
+    list_ai_foundry_models,
     list_openai_deployments,
     plan_ai_foundry_agent_mutation,
+    plan_ai_foundry_connection_deletion,
     plan_openai_deployment,
     update_ai_foundry_agent,
 )
@@ -67,6 +72,7 @@ from .tools.network import (
     list_virtual_networks,
     plan_public_ip_creation,
 )
+from .tools.governance import list_policy_assignments, list_policy_compliance_states, list_policy_definitions, list_role_assignments
 
 SERVER_NAME = "Azure Cloud Intelligence MCP"
 SERVER_VERSION = "0.1.0"
@@ -729,6 +735,41 @@ TOOL_DEFINITIONS = [
         "inputSchema": {"type": "object", "properties": {"resource_group": {"type": "string", "minLength": 1}, "account_name": {"type": "string", "minLength": 1}, "deployment_name": {"type": "string", "minLength": 1}, "model_name": {"type": "string", "minLength": 1}, "model_version": {"type": "string", "minLength": 1}, "sku_name": {"type": "string"}, "capacity": {"type": "integer", "minimum": 1}}, "required": ["resource_group", "account_name", "deployment_name", "model_name", "model_version"], "additionalProperties": False},
         "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Reader"},
     },
+    {
+        "name": "get_telemetry_snapshot",
+        "description": "Read bounded in-process RED metrics for MCP tool calls.",
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Reader"},
+    },
+    {
+        "name": "list_role_assignments",
+        "description": "List bounded RBAC role assignments at a validated scope.",
+        "inputSchema": {"type": "object", "properties": {"scope": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1}}, "required": ["scope"], "additionalProperties": False},
+        "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Reader"},
+    },
+    {
+        "name": "list_policy_definitions",
+        "description": "List bounded Azure Policy definition metadata.",
+        "inputSchema": {"type": "object", "properties": {"scope": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1}}, "required": ["scope"], "additionalProperties": False},
+        "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Reader"},
+    },
+    {
+        "name": "list_policy_assignments",
+        "description": "List bounded Azure Policy assignment metadata at a validated scope.",
+        "inputSchema": {"type": "object", "properties": {"scope": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1}}, "required": ["scope"], "additionalProperties": False},
+        "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Reader"},
+    },
+    {
+        "name": "list_policy_compliance_states",
+        "description": "List bounded latest Azure Policy compliance states.",
+        "inputSchema": {"type": "object", "properties": {"scope": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1}}, "required": ["scope"], "additionalProperties": False},
+        "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Reader"},
+    },
+    {"name": "list_ai_foundry_models", "description": "List bounded Microsoft Foundry model metadata.", "inputSchema": {"type": "object", "properties": {"project_endpoint": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1}}, "required": ["project_endpoint"], "additionalProperties": False}, "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Foundry User"}},
+    {"name": "list_ai_foundry_connections", "description": "List bounded Microsoft Foundry connection metadata without credential values.", "inputSchema": {"type": "object", "properties": {"project_endpoint": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1}}, "required": ["project_endpoint"], "additionalProperties": False}, "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Foundry User"}},
+    {"name": "get_ai_foundry_trace_status", "description": "Report Foundry tracing readiness without exposing connection values.", "inputSchema": {"type": "object", "properties": {"project_endpoint": {"type": "string", "minLength": 1}}, "required": ["project_endpoint"], "additionalProperties": False}, "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Foundry User"}},
+    {"name": "plan_ai_foundry_connection_deletion", "description": "Plan Foundry project connection deletion and issue a single-use approval receipt.", "inputSchema": {"type": "object", "properties": {"resource_group": {"type": "string", "minLength": 1}, "account_name": {"type": "string", "minLength": 1}, "project_name": {"type": "string", "minLength": 1}, "connection_name": {"type": "string", "minLength": 1}}, "required": ["resource_group", "account_name", "project_name", "connection_name"], "additionalProperties": False}, "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Reader"}},
+    {"name": "delete_ai_foundry_project_connection", "description": "Delete a Foundry project connection after single-use approval.", "inputSchema": {"type": "object", "properties": {"resource_group": {"type": "string", "minLength": 1}, "account_name": {"type": "string", "minLength": 1}, "project_name": {"type": "string", "minLength": 1}, "connection_name": {"type": "string", "minLength": 1}, "approval_id": {"type": "string", "minLength": 1}}, "required": ["resource_group", "account_name", "project_name", "connection_name", "approval_id"], "additionalProperties": False}, "x-metadata": {"safety_class": "controlled_action", "minimum_rbac_role": "Cognitive Services Contributor"}},
 ]
 
 
@@ -770,6 +811,67 @@ def tools_list_response() -> dict[str, Any]:
         ``{"tools": [<tool_definition>, ...]}``
     """
     return {"tools": TOOL_DEFINITIONS}
+
+
+@mcp.tool(name="get_telemetry_snapshot", description="Read bounded in-process RED metrics for MCP tool calls.")
+def get_telemetry_snapshot_tool() -> dict[str, Any]:
+    """Expose audit-safe request rate, error, and duration telemetry."""
+    set_correlation_id()
+    return telemetry_snapshot()
+
+
+@mcp.tool(name="list_role_assignments", description="List bounded RBAC role assignments at a validated scope.")
+def list_role_assignments_tool(scope: str, limit: int | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return list_role_assignments(scope, limit)
+
+
+@mcp.tool(name="list_policy_definitions", description="List bounded Azure Policy definition metadata.")
+def list_policy_definitions_tool(scope: str, limit: int | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return list_policy_definitions(scope, limit)
+
+
+@mcp.tool(name="list_policy_assignments", description="List bounded Azure Policy assignment metadata at a validated scope.")
+def list_policy_assignments_tool(scope: str, limit: int | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return list_policy_assignments(scope, limit)
+
+
+@mcp.tool(name="list_policy_compliance_states", description="List bounded latest Azure Policy compliance states.")
+def list_policy_compliance_states_tool(scope: str, limit: int | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return list_policy_compliance_states(scope, limit)
+
+
+@mcp.tool(name="list_ai_foundry_models", description="List bounded Microsoft Foundry model metadata.")
+def list_ai_foundry_models_tool(project_endpoint: str, limit: int = 50) -> dict[str, Any]:
+    set_correlation_id()
+    return list_ai_foundry_models(project_endpoint, limit)
+
+
+@mcp.tool(name="list_ai_foundry_connections", description="List bounded Microsoft Foundry connection metadata without credential values.")
+def list_ai_foundry_connections_tool(project_endpoint: str, limit: int = 50) -> dict[str, Any]:
+    set_correlation_id()
+    return list_ai_foundry_connections(project_endpoint, limit)
+
+
+@mcp.tool(name="get_ai_foundry_trace_status", description="Report Foundry tracing readiness without exposing connection values.")
+def get_ai_foundry_trace_status_tool(project_endpoint: str) -> dict[str, Any]:
+    set_correlation_id()
+    return get_ai_foundry_trace_status(project_endpoint)
+
+
+@mcp.tool(name="plan_ai_foundry_connection_deletion", description="Plan Foundry project connection deletion and issue a single-use approval receipt.")
+def plan_ai_foundry_connection_deletion_tool(resource_group: str, account_name: str, project_name: str, connection_name: str) -> dict[str, Any]:
+    set_correlation_id()
+    return plan_ai_foundry_connection_deletion(resource_group, account_name, project_name, connection_name)
+
+
+@mcp.tool(name="delete_ai_foundry_project_connection", description="Delete a Foundry project connection after single-use approval.")
+def delete_ai_foundry_project_connection_tool(resource_group: str, account_name: str, project_name: str, connection_name: str, approval_id: str | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return delete_ai_foundry_project_connection(resource_group, account_name, project_name, connection_name, approval_id)
 
 
 @mcp.tool(name="list_resource_groups", description=TOOL_DEFINITIONS[0]["description"])

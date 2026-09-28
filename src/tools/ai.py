@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any
 
@@ -24,6 +25,7 @@ from ..validation import (
     OpenAIDeploymentInput,
     to_validation_error_payload,
 )
+from ..validation import ResourceGroupInput
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +60,103 @@ def _foundry_not_configured_payload() -> dict[str, Any]:
             "message": "No verified Microsoft Foundry project adapter is configured.",
         },
     }
+
+
+def _foundry_inventory(project_endpoint: str, limit: int, tool_name: str, method_name: str, output_key: str) -> dict[str, Any]:
+    """Run one bounded Foundry inventory read and return safe metadata only."""
+    started = time.perf_counter()
+    metadata = get_tool_metadata(tool_name)
+    try:
+        validated = FoundryProjectInput(project_endpoint=project_endpoint)
+        if limit < 1 or limit > 500:
+            raise ValueError("limit must be between 1 and 500.")
+        clients = azure_clients.get_azure_clients()
+        if clients.ai_foundry is None:
+            return _foundry_not_configured_payload()
+        values = list(run_with_timeout(lambda: getattr(clients.ai_foundry, method_name)(validated.project_endpoint), load_settings().request_timeout_seconds))
+        normalized = [{"id": value.get("id") if isinstance(value, dict) else getattr(value, "id", None), "name": value.get("name") if isinstance(value, dict) else getattr(value, "name", None), "type": value.get("type") if isinstance(value, dict) else getattr(value, "type", None), "status": value.get("status") if isinstance(value, dict) else getattr(value, "status", None)} for value in values[:limit]]
+        audit_tool_call(logger, tool_name=tool_name, status="success", duration_ms=round((time.perf_counter()-started)*1000, 2), safety_class=metadata.safety_class.value, target_context={"project_endpoint": validated.project_endpoint, "limit": limit})
+        return {"ok": True, "project_endpoint": validated.project_endpoint, "count": len(normalized), "truncated": len(values) > limit, output_key: normalized}
+    except (ValidationError, ValueError) as exc:
+        return to_validation_error_payload(exc) if isinstance(exc, ValidationError) else {"ok": False, "error": {"code": "VALIDATION_ERROR", "message": str(exc)}}
+    except Exception as exc:  # pragma: no cover
+        error = as_tool_error(exc)
+        audit_tool_call(logger, tool_name=tool_name, status="error", duration_ms=round((time.perf_counter()-started)*1000, 2), safety_class=metadata.safety_class.value, target_context={"project_endpoint": project_endpoint, "limit": limit}, error_code=error["error"]["code"])
+        return error
+
+
+def list_ai_foundry_models(project_endpoint: str, limit: int = 50) -> dict[str, Any]:
+    """List bounded Foundry model metadata for one validated project endpoint."""
+    return _foundry_inventory(project_endpoint, limit, "list_ai_foundry_models", "list_models", "models")
+
+
+def list_ai_foundry_connections(project_endpoint: str, limit: int = 50) -> dict[str, Any]:
+    """List bounded Foundry connection metadata without returning credentials."""
+    return _foundry_inventory(project_endpoint, limit, "list_ai_foundry_connections", "list_connections", "connections")
+
+
+def get_ai_foundry_trace_status(project_endpoint: str) -> dict[str, Any]:
+    """Report local Foundry tracing readiness without exposing secret values."""
+    started = time.perf_counter()
+    tool_name = "get_ai_foundry_trace_status"
+    metadata = get_tool_metadata(tool_name)
+    try:
+        validated = FoundryProjectInput(project_endpoint=project_endpoint)
+        # Presence is enough for readiness. Raw connection strings, endpoints,
+        # and headers must not cross the MCP or audit boundary.
+        app_insights = bool(os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING", "").strip())
+        otel_endpoint = bool(os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip())
+        otel_headers = bool(os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", "").strip())
+        status = {"ok": True, "project_endpoint": validated.project_endpoint,
+                  "application_insights_configured": app_insights,
+                  "otlp_endpoint_configured": otel_endpoint,
+                  "otlp_headers_configured": otel_headers,
+                  "tracing_ready": app_insights or otel_endpoint,
+                  "note": "Configuration presence is reported without revealing telemetry connection values."}
+        audit_tool_call(logger, tool_name=tool_name, status="success", duration_ms=round((time.perf_counter()-started)*1000, 2), safety_class=metadata.safety_class.value, target_context={"project_endpoint": validated.project_endpoint})
+        return status
+    except ValidationError as exc:
+        return to_validation_error_payload(exc)
+
+
+def _connection_target(resource_group: str, account_name: str, project_name: str, connection_name: str) -> tuple[dict[str, str], dict[str, Any] | None]:
+    try:
+        group = ResourceGroupInput(resource_group=resource_group).resource_group
+        values = {"account_name": account_name.strip(), "project_name": project_name.strip(), "connection_name": connection_name.strip()}
+        if any(not value or len(value) > 64 for value in values.values()):
+            raise ValueError("account_name, project_name, and connection_name must be non-empty and at most 64 characters.")
+        return {"resource_group": group, **values}, None
+    except (ValidationError, ValueError) as exc:
+        return {}, to_validation_error_payload(exc) if isinstance(exc, ValidationError) else {"ok": False, "error": {"code": "VALIDATION_ERROR", "message": str(exc)}}
+
+
+def plan_ai_foundry_connection_deletion(resource_group: str, account_name: str, project_name: str, connection_name: str) -> dict[str, Any]:
+    """Create a bound approval receipt before deleting a Foundry connection."""
+    target, error = _connection_target(resource_group, account_name, project_name, connection_name)
+    if error:
+        return error
+    return issue_plan("delete_ai_foundry_project_connection", subscription_scope(load_settings().subscription_id, target["resource_group"]), target, {})
+
+
+def delete_ai_foundry_project_connection(resource_group: str, account_name: str, project_name: str, connection_name: str, approval_id: str | None = None) -> dict[str, Any]:
+    """Delete one Foundry project connection through the documented ARM API."""
+    target, error = _connection_target(resource_group, account_name, project_name, connection_name)
+    if error:
+        return error
+    tool_name = "delete_ai_foundry_project_connection"
+    approval_error = consume_plan(approval_id, tool_name, subscription_scope(load_settings().subscription_id, target["resource_group"]), target, {})
+    if approval_error:
+        return approval_error
+    started = time.perf_counter()
+    metadata = get_tool_metadata(tool_name)
+    try:
+        run_with_timeout(lambda: azure_clients.get_azure_clients().cognitive.project_connections.delete(target["resource_group"], target["account_name"], target["project_name"], target["connection_name"]), load_settings().request_timeout_seconds)
+        audit_tool_call(logger, tool_name=tool_name, status="success", duration_ms=round((time.perf_counter()-started)*1000, 2), safety_class=metadata.safety_class.value, target_context=target)
+        return {"ok": True, "operation": tool_name, **target, "deleted": True}
+    except Exception as exc:  # pragma: no cover
+        failure = as_tool_error(exc)
+        audit_tool_call(logger, tool_name=tool_name, status="error", duration_ms=round((time.perf_counter()-started)*1000, 2), safety_class=metadata.safety_class.value, target_context=target, error_code=failure["error"]["code"])
+        return failure
 
 
 def _approval_record(tool_name: str, target: dict[str, Any]) -> dict[str, Any]:

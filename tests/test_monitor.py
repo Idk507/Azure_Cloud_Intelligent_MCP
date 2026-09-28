@@ -4,7 +4,7 @@ import json
 import logging
 import unittest
 
-from src.monitor import JsonLogFormatter, audit_tool_call, emit_tool_lifecycle_event, register_tool_lifecycle_hook, set_correlation_id
+from src.monitor import JsonLogFormatter, audit_tool_call, emit_tool_lifecycle_event, register_tool_lifecycle_hook, reset_telemetry, set_correlation_id, telemetry_snapshot
 
 
 class _CaptureHandler(logging.Handler):
@@ -17,6 +17,16 @@ class _CaptureHandler(logging.Handler):
 
 
 class MonitorTestCase(unittest.TestCase):
+    def setUp(self) -> None:
+        reset_telemetry()
+
+    def test_telemetry_is_bounded_and_excludes_target_context(self) -> None:
+        audit_tool_call(logging.getLogger("test.monitor.metrics"), tool_name="example", status="success", duration_ms=10, safety_class="read_only", target_context={"resource_id": "/secret"})
+        snapshot = telemetry_snapshot()
+        self.assertEqual(snapshot["metrics"][0]["calls"], 1)
+        self.assertNotIn("target_context", snapshot["metrics"][0])
+        self.assertNotIn("resource_id", snapshot["metrics"][0])
+
     def test_lifecycle_hook_receives_redacted_correlated_payload(self) -> None:
         received = []
         register_tool_lifecycle_hook(lambda event, payload: received.append((event, payload)))

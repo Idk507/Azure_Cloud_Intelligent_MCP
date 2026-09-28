@@ -21,6 +21,24 @@ class FoundryAgentServiceAdapter:
         client = AIProjectClient(endpoint=project_endpoint, credential=build_credential(load_settings()))
         return client.agents
 
+    def _project(self, project_endpoint: str) -> Any:
+        from azure.ai.projects import AIProjectClient
+        return AIProjectClient(endpoint=project_endpoint, credential=build_credential(load_settings()))
+
+    def list_models(self, project_endpoint: str) -> Any:
+        """List project model metadata through the SDK without guessing endpoints."""
+        models = getattr(self._project(project_endpoint), "models", None)
+        if models is None or not hasattr(models, "list"):
+            raise RuntimeError("The configured azure-ai-projects SDK does not expose model discovery.")
+        return models.list()
+
+    def list_connections(self, project_endpoint: str) -> Any:
+        """List connection metadata only; callers must redact credentials."""
+        connections = getattr(self._project(project_endpoint), "connections", None)
+        if connections is None or not hasattr(connections, "list"):
+            raise RuntimeError("The configured azure-ai-projects SDK does not expose connection discovery.")
+        return connections.list()
+
     def list_agents(self, project_endpoint: str) -> Any:
         return self._agents(project_endpoint).list_agents()
 

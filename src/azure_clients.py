@@ -39,6 +39,9 @@ class AzureClients:
     cosmos: Any = None
     ml: Any = None
     resource_graph: Any = None
+    authorization: Any = None
+    policy: Any = None
+    policy_insights: Any = None
 
 
 _clients_lock = Lock()
@@ -96,6 +99,9 @@ def create_azure_clients(settings: Settings) -> AzureClients:
     from azure.mgmt.network import NetworkManagementClient
     from azure.mgmt.resource import ResourceManagementClient
     from azure.mgmt.storage import StorageManagementClient
+    from azure.mgmt.authorization import AuthorizationManagementClient
+    from azure.mgmt.resource.policy import PolicyClient
+    from azure.mgmt.policyinsights import PolicyInsightsClient
 
     credential = build_credential(settings)
     retry_policy = _build_retry_policy(settings)
@@ -156,6 +162,9 @@ def create_azure_clients(settings: Settings) -> AzureClients:
         settings.subscription_id,
         **client_kwargs,
     )
+    authorization_client = AuthorizationManagementClient(credential, settings.subscription_id, **client_kwargs)
+    policy_client = PolicyClient(credential, settings.subscription_id, **client_kwargs)
+    policy_insights_client = PolicyInsightsClient(credential, **client_kwargs)
     from .foundry_adapter import FoundryAgentServiceAdapter
     from .resource_graph_adapter import AzureResourceGraphAdapter
 
@@ -173,6 +182,9 @@ def create_azure_clients(settings: Settings) -> AzureClients:
         aks=aks_client,
         appservice=appservice_client,
         resource_graph=AzureResourceGraphAdapter(credential),
+        authorization=authorization_client,
+        policy=policy_client,
+        policy_insights=policy_insights_client,
     )
 
 
