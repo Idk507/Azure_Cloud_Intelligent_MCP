@@ -65,15 +65,39 @@ def list_role_assignments(scope: str, limit: int | None = None) -> dict[str, Any
 def list_policy_definitions(scope: str, limit: int | None = None) -> dict[str, Any]:
     """List policy definition metadata at the configured subscription scope."""
     return _run("list_policy_definitions", scope, limit,
-        lambda value: azure_clients.get_azure_clients().policy.policy_definitions.list_by_subscription(),
+        lambda value: _policy_definitions(),
         "policy_definitions", lambda item: {"id": getattr(item, "id", None), "name": getattr(item, "name", None), "display_name": getattr(getattr(item, "display_name", None), "value", getattr(item, "display_name", None)), "policy_type": getattr(item, "policy_type", None), "mode": getattr(item, "mode", None), "description": getattr(item, "description", None)})
 
 
 def list_policy_assignments(scope: str, limit: int | None = None) -> dict[str, Any]:
     """List policy assignment metadata effective at a validated scope."""
     return _run("list_policy_assignments", scope, limit,
-        lambda value: azure_clients.get_azure_clients().policy.policy_assignments.list_for_scope(value),
+        lambda value: _policy_assignments(value),
         "policy_assignments", lambda item: {"id": getattr(item, "id", None), "name": getattr(item, "name", None), "display_name": getattr(item, "display_name", None), "policy_definition_id": getattr(item, "policy_definition_id", None), "scope": getattr(item, "scope", None), "enforcement_mode": getattr(item, "enforcement_mode", None)})
+
+
+def _policy_definitions() -> Any:
+    """Use the current SDK's subscription ``list`` with an older fallback."""
+    operations = azure_clients.get_azure_clients().policy.policy_definitions
+    current_list = getattr(operations, "list", None)
+    if callable(current_list):
+        return current_list()
+    legacy_list = getattr(operations, "list_by_subscription", None)
+    if callable(legacy_list):
+        return legacy_list()
+    raise RuntimeError("The configured Azure Policy SDK does not expose policy-definition inventory.")
+
+
+def _policy_assignments(scope: str) -> Any:
+    """Use the current SDK's subscription ``list`` with a scoped fallback."""
+    operations = azure_clients.get_azure_clients().policy.policy_assignments
+    current_list = getattr(operations, "list", None)
+    if callable(current_list):
+        return current_list()
+    legacy_list = getattr(operations, "list_for_scope", None)
+    if callable(legacy_list):
+        return legacy_list(scope)
+    raise RuntimeError("The configured Azure Policy SDK does not expose policy-assignment inventory.")
 
 
 def list_policy_compliance_states(scope: str, limit: int | None = None) -> dict[str, Any]:

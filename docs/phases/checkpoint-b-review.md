@@ -39,7 +39,7 @@ operation requires.
 - Automated policy and approval tests: `tests/test_policies.py`, `tests/test_tools.py`, and
   `tests/test_slice34.py`.
 - Full suite: 55 tests passing.
-- Live read-only subscription/resource inventory: `docs/phase3-live-validation.md`.
+- Live read-only subscription/resource inventory: `phase3-live-validation.md`.
 - Historical live Activity Log query succeeded for the existing Cognitive Services account; no new
   resource was modified during validation.
 

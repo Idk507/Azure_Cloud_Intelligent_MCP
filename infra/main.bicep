@@ -16,8 +16,29 @@ param subscriptionId string
 @description('Container image registry server, for example contoso.azurecr.io.')
 param registryServer string
 
+@description('Optional workspace-based Application Insights resource name. Leave empty when an existing component is connected to the Foundry project.')
+param applicationInsightsName string = ''
+
+var logWorkspaceResourceGroup = split(logAnalyticsWorkspaceId, '/')[4]
+var logWorkspaceName = last(split(logAnalyticsWorkspaceId, '/'))
+
 resource logWorkspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' existing = {
-  id: logAnalyticsWorkspaceId
+  scope: resourceGroup(subscription().subscriptionId, logWorkspaceResourceGroup)
+  name: logWorkspaceName
+}
+
+// WorkspaceResourceId is required for workspace-based Application Insights components.
+// Source: https://learn.microsoft.com/azure/azure-monitor/app/create-workspace-resource?tabs=bicep
+resource applicationInsights 'Microsoft.Insights/components@2020-02-02' = if (!empty(applicationInsightsName)) {
+  name: applicationInsightsName
+  location: location
+  kind: 'web'
+  properties: {
+    Application_Type: 'web'
+    WorkspaceResourceId: logAnalyticsWorkspaceId
+    DisableIpMasking: false
+    DisableLocalAuth: false
+  }
 }
 
 resource containerEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
@@ -73,6 +94,17 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
           ]
           probes: [
             {
+              type: 'Readiness'
+              httpGet: {
+                path: '/health'
+                port: 8000
+                scheme: 'HTTP'
+              }
+              periodSeconds: 10
+              timeoutSeconds: 5
+              failureThreshold: 3
+            }
+            {
               type: 'Liveness'
               httpGet: {
                 path: '/health'
@@ -110,3 +142,4 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
 
 output containerAppFqdn string = containerApp.properties.configuration.ingress.fqdn
 output managedIdentityPrincipalId string = containerApp.identity.principalId
+output applicationInsightsResourceId string = !empty(applicationInsightsName) ? applicationInsights.id : ''

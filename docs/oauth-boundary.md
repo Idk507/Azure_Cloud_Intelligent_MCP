@@ -20,10 +20,13 @@ or middleware authorization boundary that validates:
 - scope/role claims mapped to tool safety class and Azure scope
 
 The MCP tool policy remains necessary after token validation; a valid user token alone must not
-bypass explicit approval for controlled actions.
+bypass explicit approval for controlled actions. The required local-versus-hosted identity split,
+per-user subscription selection, and publisher configuration are specified in
+[portable-plugin-architecture.md](portable-plugin-architecture.md).
 
 ## Decision
 
-OAuth/token validation is deferred until the deployment model requires shared or multi-tenant
-hosting. The current implementation documents the boundary and fails closed for unconfigured
-Foundry adapters rather than accepting arbitrary project endpoints or credentials.
+OAuth/token validation is mandatory before hosted or public multi-tenant publication. The current
+implementation supports portable local onboarding with `DefaultAzureCredential`, but is not a
+hosted multi-tenant OAuth resource server yet; it must fail closed rather than using a shared
+Azure identity on behalf of arbitrary users.

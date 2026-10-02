@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
 from mcp.server.fastmcp import FastMCP
 
 from .config import ConfigError, load_settings
-from .monitor import configure_logging, set_correlation_id, telemetry_snapshot
+from .monitor import configure_logging, configure_tracing, set_correlation_id, telemetry_snapshot
 from .tool_registry import get_tool_metadata
 from .tools.compute import (
     get_virtual_machine_status,
@@ -30,32 +31,49 @@ from .tools.deployments import get_arm_deployment_operation_status, preview_arm_
 from .tools.storage import (
     create_storage_account,
     download_blob_content,
+    get_storage_lifecycle_policy,
+    list_storage_containers,
     list_storage_accounts,
     plan_storage_mutation,
     upload_blob_content,
 )
-from .tools.keyvault import list_key_vaults
+from .tools.keyvault import list_key_vault_secret_metadata, list_key_vaults
 from .tools.monitoring import get_resource_metrics, query_log_analytics
 from .tools.cost import get_cost_summary, list_advisor_recommendations
 from .tools.ai import (
+    create_ai_foundry_evaluation,
     create_ai_foundry_agent,
     delete_ai_foundry_agent,
     delete_ai_foundry_project_connection,
     deploy_openai_model,
     get_ai_foundry_agent,
+    get_ai_foundry_project_connection,
     get_ai_foundry_trace_status,
     list_ai_foundry_agents,
+    list_ai_foundry_agent_threads,
     list_ai_foundry_connections,
+    list_ai_foundry_evaluation_runs,
+    list_ai_foundry_evaluations,
     list_ai_foundry_models,
+    list_ai_foundry_thread_messages,
+    list_ai_foundry_thread_runs,
     list_openai_deployments,
     plan_ai_foundry_agent_mutation,
+    plan_ai_foundry_evaluation_creation,
     plan_ai_foundry_connection_deletion,
+    plan_ai_foundry_connection_upsert,
     plan_openai_deployment,
     update_ai_foundry_agent,
+    upsert_ai_foundry_project_connection,
 )
 from .tools.diagnostics import diagnose_virtual_machine
 from .tools.advanced import (
     list_aks_clusters,
+    list_aks_node_pools,
+    list_app_service_slots,
+    list_container_apps,
+    list_container_app_environments,
+    list_container_app_revisions,
     list_cosmos_accounts,
     list_function_apps,
     query_function_app_logs,
@@ -73,12 +91,41 @@ from .tools.network import (
     plan_public_ip_creation,
 )
 from .tools.governance import list_policy_assignments, list_policy_compliance_states, list_policy_definitions, list_role_assignments
+from .tools.subscriptions import list_accessible_subscriptions
 
 SERVER_NAME = "Azure Cloud Intelligence MCP"
 SERVER_VERSION = "0.1.0"
 PROTOCOL_VERSION = "2025-06-18"
 
-mcp = FastMCP(SERVER_NAME)
+
+def _hosted_auth_configuration() -> dict[str, Any]:
+    """Return MCP OAuth and transport settings for the active deployment mode."""
+    settings = load_settings()
+    configuration: dict[str, Any] = {}
+    if settings.mcp_allowed_hosts:
+        from mcp.server.transport_security import TransportSecuritySettings
+
+        configuration["transport_security"] = TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=["127.0.0.1:8000", "localhost:8000", *settings.mcp_allowed_hosts],
+        )
+    if settings.auth_mode == "hosted":
+        from mcp.server.auth.settings import AuthSettings
+        from .entra_auth import EntraTokenVerifier
+
+        configuration.update({
+            "token_verifier": EntraTokenVerifier(settings),
+            "auth": AuthSettings(
+                issuer_url="https://login.microsoftonline.com/organizations/v2.0",
+                resource_server_url=settings.mcp_public_url,
+                required_scopes=["access_as_user"],
+                validate_token_resource=False,
+            ),
+        })
+    return configuration
+
+
+mcp = FastMCP(SERVER_NAME, **_hosted_auth_configuration())
 
 RG_TOOL_METADATA = get_tool_metadata("list_resource_groups")
 LIST_RESOURCES_TOOL_METADATA = get_tool_metadata("list_azure_resources")
@@ -126,6 +173,7 @@ COSMOS_QUERY_TOOL_METADATA = get_tool_metadata("query_cosmos_items")
 ML_WORKSPACES_TOOL_METADATA = get_tool_metadata("list_ml_workspaces")
 ML_MODELS_TOOL_METADATA = get_tool_metadata("list_ml_models")
 ML_JOBS_TOOL_METADATA = get_tool_metadata("list_ml_jobs")
+SUBSCRIPTIONS_TOOL_METADATA = get_tool_metadata("list_accessible_subscriptions")
 
 
 TOOL_DEFINITIONS = [
@@ -416,6 +464,7 @@ TOOL_DEFINITIONS = [
                 "resource_group": {"type": "string", "minLength": 1},
                 "account_name": {"type": "string", "minLength": 1},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 500},
+                "cursor": {"type": "string", "minLength": 1},
             },
             "required": ["resource_group", "account_name"],
             "additionalProperties": False,
@@ -765,11 +814,35 @@ TOOL_DEFINITIONS = [
         "inputSchema": {"type": "object", "properties": {"scope": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1}}, "required": ["scope"], "additionalProperties": False},
         "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Reader"},
     },
-    {"name": "list_ai_foundry_models", "description": "List bounded Microsoft Foundry model metadata.", "inputSchema": {"type": "object", "properties": {"project_endpoint": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1}}, "required": ["project_endpoint"], "additionalProperties": False}, "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Foundry User"}},
-    {"name": "list_ai_foundry_connections", "description": "List bounded Microsoft Foundry connection metadata without credential values.", "inputSchema": {"type": "object", "properties": {"project_endpoint": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1}}, "required": ["project_endpoint"], "additionalProperties": False}, "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Foundry User"}},
+    {"name": "list_ai_foundry_models", "description": "List bounded Microsoft Foundry model metadata.", "inputSchema": {"type": "object", "properties": {"project_endpoint": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1}, "cursor": {"type": "string", "minLength": 1}}, "required": ["project_endpoint"], "additionalProperties": False}, "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Foundry User"}},
+    {"name": "list_ai_foundry_connections", "description": "List bounded Microsoft Foundry connection metadata without credential values.", "inputSchema": {"type": "object", "properties": {"project_endpoint": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1}, "cursor": {"type": "string", "minLength": 1}}, "required": ["project_endpoint"], "additionalProperties": False}, "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Foundry User"}},
     {"name": "get_ai_foundry_trace_status", "description": "Report Foundry tracing readiness without exposing connection values.", "inputSchema": {"type": "object", "properties": {"project_endpoint": {"type": "string", "minLength": 1}}, "required": ["project_endpoint"], "additionalProperties": False}, "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Foundry User"}},
     {"name": "plan_ai_foundry_connection_deletion", "description": "Plan Foundry project connection deletion and issue a single-use approval receipt.", "inputSchema": {"type": "object", "properties": {"resource_group": {"type": "string", "minLength": 1}, "account_name": {"type": "string", "minLength": 1}, "project_name": {"type": "string", "minLength": 1}, "connection_name": {"type": "string", "minLength": 1}}, "required": ["resource_group", "account_name", "project_name", "connection_name"], "additionalProperties": False}, "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Reader"}},
     {"name": "delete_ai_foundry_project_connection", "description": "Delete a Foundry project connection after single-use approval.", "inputSchema": {"type": "object", "properties": {"resource_group": {"type": "string", "minLength": 1}, "account_name": {"type": "string", "minLength": 1}, "project_name": {"type": "string", "minLength": 1}, "connection_name": {"type": "string", "minLength": 1}, "approval_id": {"type": "string", "minLength": 1}}, "required": ["resource_group", "account_name", "project_name", "connection_name", "approval_id"], "additionalProperties": False}, "x-metadata": {"safety_class": "controlled_action", "minimum_rbac_role": "Cognitive Services Contributor"}},
+    {"name": "get_ai_foundry_project_connection", "description": "Read Foundry project connection metadata without credentials.", "inputSchema": {"type": "object", "properties": {"resource_group": {"type": "string", "minLength": 1}, "account_name": {"type": "string", "minLength": 1}, "project_name": {"type": "string", "minLength": 1}, "connection_name": {"type": "string", "minLength": 1}}, "required": ["resource_group", "account_name", "project_name", "connection_name"], "additionalProperties": False}, "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Reader"}},
+    {"name": "plan_ai_foundry_connection_upsert", "description": "Plan Foundry project connection create/update and issue a single-use approval receipt.", "inputSchema": {"type": "object", "properties": {"resource_group": {"type": "string", "minLength": 1}, "account_name": {"type": "string", "minLength": 1}, "project_name": {"type": "string", "minLength": 1}, "connection_name": {"type": "string", "minLength": 1}, "connection": {"type": "object"}}, "required": ["resource_group", "account_name", "project_name", "connection_name", "connection"], "additionalProperties": False}, "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Reader"}},
+    {"name": "upsert_ai_foundry_project_connection", "description": "Create or update a Foundry project connection after single-use approval.", "inputSchema": {"type": "object", "properties": {"resource_group": {"type": "string", "minLength": 1}, "account_name": {"type": "string", "minLength": 1}, "project_name": {"type": "string", "minLength": 1}, "connection_name": {"type": "string", "minLength": 1}, "connection": {"type": "object"}, "approval_id": {"type": "string", "minLength": 1}}, "required": ["resource_group", "account_name", "project_name", "connection_name", "connection", "approval_id"], "additionalProperties": False}, "x-metadata": {"safety_class": "controlled_action", "minimum_rbac_role": "Cognitive Services Contributor"}},
+    {"name": "list_ai_foundry_thread_messages", "description": "List Foundry thread message metadata without content.", "inputSchema": {"type": "object", "properties": {"project_endpoint": {"type": "string", "minLength": 1}, "thread_id": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1}}, "required": ["project_endpoint", "thread_id"], "additionalProperties": False}, "x-metadata": {"safety_class": "sensitive_data", "minimum_rbac_role": "Foundry User"}},
+    {"name": "list_ai_foundry_thread_runs", "description": "List Foundry thread run metadata without inputs or outputs.", "inputSchema": {"type": "object", "properties": {"project_endpoint": {"type": "string", "minLength": 1}, "thread_id": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1}}, "required": ["project_endpoint", "thread_id"], "additionalProperties": False}, "x-metadata": {"safety_class": "sensitive_data", "minimum_rbac_role": "Foundry User"}},
+    {"name": "list_ai_foundry_agent_threads", "description": "List Foundry agent thread metadata without messages or metadata.", "inputSchema": {"type": "object", "properties": {"project_endpoint": {"type": "string", "minLength": 1}, "agent_id": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1}}, "required": ["project_endpoint", "agent_id"], "additionalProperties": False}, "x-metadata": {"safety_class": "sensitive_data", "minimum_rbac_role": "Foundry User"}},
+    {"name": "list_ai_foundry_evaluations", "description": "List bounded Foundry evaluation metadata without criteria or dataset details.", "inputSchema": {"type": "object", "properties": {"project_endpoint": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1}}, "required": ["project_endpoint"], "additionalProperties": False}, "x-metadata": {"safety_class": "sensitive_data", "minimum_rbac_role": "Foundry User"}},
+    {"name": "list_ai_foundry_evaluation_runs", "description": "List bounded Foundry evaluation-run metadata without scores or sample content.", "inputSchema": {"type": "object", "properties": {"project_endpoint": {"type": "string", "minLength": 1}, "evaluation_id": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1}}, "required": ["project_endpoint", "evaluation_id"], "additionalProperties": False}, "x-metadata": {"safety_class": "sensitive_data", "minimum_rbac_role": "Foundry User"}},
+    {"name": "plan_ai_foundry_evaluation_creation", "description": "Plan Foundry evaluation creation and issue a single-use approval receipt.", "inputSchema": {"type": "object", "properties": {"project_endpoint": {"type": "string", "minLength": 1}, "definition": {"type": "object"}}, "required": ["project_endpoint", "definition"], "additionalProperties": False}, "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Reader"}},
+    {"name": "create_ai_foundry_evaluation", "description": "Create a Foundry evaluation after single-use approval.", "inputSchema": {"type": "object", "properties": {"project_endpoint": {"type": "string", "minLength": 1}, "definition": {"type": "object"}, "approval_id": {"type": "string", "minLength": 1}}, "required": ["project_endpoint", "definition", "approval_id"], "additionalProperties": False}, "x-metadata": {"safety_class": "controlled_action", "minimum_rbac_role": "Foundry User"}},
+    {"name": "list_key_vault_secret_metadata", "description": "List Key Vault secret metadata without retrieving values or tags.", "inputSchema": {"type": "object", "properties": {"vault_uri": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1}}, "required": ["vault_uri"], "additionalProperties": False}, "x-metadata": {"safety_class": "sensitive_data", "minimum_rbac_role": "Key Vault Secrets User"}},
+    {"name": "list_aks_node_pools", "description": "List AKS node-pool capacity and configuration metadata without credentials.", "inputSchema": {"type": "object", "properties": {"resource_group": {"type": "string", "minLength": 1}, "cluster_name": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1}}, "required": ["resource_group", "cluster_name"], "additionalProperties": False}, "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Azure Kubernetes Service Contributor"}},
+    {"name": "list_storage_containers", "description": "List storage container metadata without blob contents or metadata values.", "inputSchema": {"type": "object", "properties": {"account_name": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1}}, "required": ["account_name"], "additionalProperties": False}, "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Storage Blob Data Reader"}},
+    {"name": "get_storage_lifecycle_policy", "description": "Read storage lifecycle policy rules without modifying retention.", "inputSchema": {"type": "object", "properties": {"resource_group": {"type": "string", "minLength": 1}, "account_name": {"type": "string", "minLength": 1}}, "required": ["resource_group", "account_name"], "additionalProperties": False}, "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Storage Account Contributor"}},
+    {"name": "list_app_service_slots", "description": "List App Service deployment-slot metadata without configuration values.", "inputSchema": {"type": "object", "properties": {"resource_group": {"type": "string", "minLength": 1}, "app_name": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1}}, "required": ["resource_group", "app_name"], "additionalProperties": False}, "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Website Contributor"}},
+    {"name": "list_container_apps", "description": "List Container App metadata without configuration, revision templates, or secrets.", "inputSchema": {"type": "object", "properties": {"resource_group": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1}}, "required": ["resource_group"], "additionalProperties": False}, "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Reader"}},
+    {"name": "list_container_app_environments", "description": "List Container Apps environment metadata without log credentials or network details.", "inputSchema": {"type": "object", "properties": {"resource_group": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1}}, "required": ["resource_group"], "additionalProperties": False}, "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Reader"}},
+    {"name": "list_container_app_revisions", "description": "List Container App revision health metadata without revision templates or secrets.", "inputSchema": {"type": "object", "properties": {"resource_group": {"type": "string", "minLength": 1}, "app_name": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1}}, "required": ["resource_group", "app_name"], "additionalProperties": False}, "x-metadata": {"safety_class": "read_only", "minimum_rbac_role": "Reader"}},
+    {
+        "name": SUBSCRIPTIONS_TOOL_METADATA.name,
+        "description": SUBSCRIPTIONS_TOOL_METADATA.description,
+        "inputSchema": {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 200}}, "additionalProperties": False},
+        "x-metadata": {"safety_class": SUBSCRIPTIONS_TOOL_METADATA.safety_class.value, "minimum_rbac_role": SUBSCRIPTIONS_TOOL_METADATA.minimum_rbac_role},
+    },
 ]
 
 
@@ -820,6 +893,12 @@ def get_telemetry_snapshot_tool() -> dict[str, Any]:
     return telemetry_snapshot()
 
 
+@mcp.tool(name="list_accessible_subscriptions", description="List subscriptions available to the configured Azure identity without selecting one.")
+def list_accessible_subscriptions_tool(limit: int = 100) -> dict[str, Any]:
+    set_correlation_id()
+    return list_accessible_subscriptions(limit)
+
+
 @mcp.tool(name="list_role_assignments", description="List bounded RBAC role assignments at a validated scope.")
 def list_role_assignments_tool(scope: str, limit: int | None = None) -> dict[str, Any]:
     set_correlation_id()
@@ -845,15 +924,15 @@ def list_policy_compliance_states_tool(scope: str, limit: int | None = None) -> 
 
 
 @mcp.tool(name="list_ai_foundry_models", description="List bounded Microsoft Foundry model metadata.")
-def list_ai_foundry_models_tool(project_endpoint: str, limit: int = 50) -> dict[str, Any]:
+def list_ai_foundry_models_tool(project_endpoint: str, limit: int = 50, cursor: str | None = None) -> dict[str, Any]:
     set_correlation_id()
-    return list_ai_foundry_models(project_endpoint, limit)
+    return list_ai_foundry_models(project_endpoint, limit, cursor)
 
 
 @mcp.tool(name="list_ai_foundry_connections", description="List bounded Microsoft Foundry connection metadata without credential values.")
-def list_ai_foundry_connections_tool(project_endpoint: str, limit: int = 50) -> dict[str, Any]:
+def list_ai_foundry_connections_tool(project_endpoint: str, limit: int = 50, cursor: str | None = None) -> dict[str, Any]:
     set_correlation_id()
-    return list_ai_foundry_connections(project_endpoint, limit)
+    return list_ai_foundry_connections(project_endpoint, limit, cursor)
 
 
 @mcp.tool(name="get_ai_foundry_trace_status", description="Report Foundry tracing readiness without exposing connection values.")
@@ -872,6 +951,66 @@ def plan_ai_foundry_connection_deletion_tool(resource_group: str, account_name: 
 def delete_ai_foundry_project_connection_tool(resource_group: str, account_name: str, project_name: str, connection_name: str, approval_id: str | None = None) -> dict[str, Any]:
     set_correlation_id()
     return delete_ai_foundry_project_connection(resource_group, account_name, project_name, connection_name, approval_id)
+
+
+@mcp.tool(name="get_ai_foundry_project_connection", description="Read Foundry project connection metadata without credentials.")
+def get_ai_foundry_project_connection_tool(resource_group: str, account_name: str, project_name: str, connection_name: str) -> dict[str, Any]:
+    set_correlation_id()
+    return get_ai_foundry_project_connection(resource_group, account_name, project_name, connection_name)
+
+
+@mcp.tool(name="list_ai_foundry_thread_messages", description="List Foundry thread message metadata without content.")
+def list_ai_foundry_thread_messages_tool(project_endpoint: str, thread_id: str, limit: int = 50) -> dict[str, Any]:
+    set_correlation_id()
+    return list_ai_foundry_thread_messages(project_endpoint, thread_id, limit)
+
+
+@mcp.tool(name="list_ai_foundry_thread_runs", description="List Foundry thread run metadata without inputs or outputs.")
+def list_ai_foundry_thread_runs_tool(project_endpoint: str, thread_id: str, limit: int = 50) -> dict[str, Any]:
+    set_correlation_id()
+    return list_ai_foundry_thread_runs(project_endpoint, thread_id, limit)
+
+
+@mcp.tool(name="list_ai_foundry_agent_threads", description="List Foundry agent thread metadata without messages or metadata.")
+def list_ai_foundry_agent_threads_tool(project_endpoint: str, agent_id: str, limit: int = 50) -> dict[str, Any]:
+    set_correlation_id()
+    return list_ai_foundry_agent_threads(project_endpoint, agent_id, limit)
+
+
+@mcp.tool(name="list_ai_foundry_evaluations", description="List bounded Foundry evaluation metadata without criteria or dataset details.")
+def list_ai_foundry_evaluations_tool(project_endpoint: str, limit: int = 50) -> dict[str, Any]:
+    set_correlation_id()
+    return list_ai_foundry_evaluations(project_endpoint, limit)
+
+
+@mcp.tool(name="list_ai_foundry_evaluation_runs", description="List bounded Foundry evaluation-run metadata without scores or sample content.")
+def list_ai_foundry_evaluation_runs_tool(project_endpoint: str, evaluation_id: str, limit: int = 50) -> dict[str, Any]:
+    set_correlation_id()
+    return list_ai_foundry_evaluation_runs(project_endpoint, evaluation_id, limit)
+
+
+@mcp.tool(name="plan_ai_foundry_evaluation_creation", description="Plan Foundry evaluation creation and issue a single-use approval receipt.")
+def plan_ai_foundry_evaluation_creation_tool(project_endpoint: str, definition: dict[str, Any]) -> dict[str, Any]:
+    set_correlation_id()
+    return plan_ai_foundry_evaluation_creation(project_endpoint, definition)
+
+
+@mcp.tool(name="create_ai_foundry_evaluation", description="Create a Foundry evaluation after single-use approval.")
+def create_ai_foundry_evaluation_tool(project_endpoint: str, definition: dict[str, Any], approval_id: str | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return create_ai_foundry_evaluation(project_endpoint, definition, approval_id)
+
+
+@mcp.tool(name="plan_ai_foundry_connection_upsert", description="Plan Foundry project connection create/update and issue a single-use approval receipt.")
+def plan_ai_foundry_connection_upsert_tool(resource_group: str, account_name: str, project_name: str, connection_name: str, connection: dict[str, Any]) -> dict[str, Any]:
+    set_correlation_id()
+    return plan_ai_foundry_connection_upsert(resource_group, account_name, project_name, connection_name, connection)
+
+
+@mcp.tool(name="upsert_ai_foundry_project_connection", description="Create or update a Foundry project connection after single-use approval.")
+def upsert_ai_foundry_project_connection_tool(resource_group: str, account_name: str, project_name: str, connection_name: str, connection: dict[str, Any], approval_id: str | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return upsert_ai_foundry_project_connection(resource_group, account_name, project_name, connection_name, connection, approval_id)
 
 
 @mcp.tool(name="list_resource_groups", description=TOOL_DEFINITIONS[0]["description"])
@@ -1048,6 +1187,24 @@ def list_key_vaults_tool(resource_group: str, limit: int | None = None) -> dict[
     return list_key_vaults(resource_group=resource_group, limit=limit)
 
 
+@mcp.tool(name="list_storage_containers", description="List storage container metadata without blob contents or metadata values.")
+def list_storage_containers_tool(account_name: str, limit: int | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return list_storage_containers(account_name=account_name, limit=limit)
+
+
+@mcp.tool(name="get_storage_lifecycle_policy", description="Read storage lifecycle policy rules without modifying retention.")
+def get_storage_lifecycle_policy_tool(resource_group: str, account_name: str) -> dict[str, Any]:
+    set_correlation_id()
+    return get_storage_lifecycle_policy(resource_group, account_name)
+
+
+@mcp.tool(name="list_key_vault_secret_metadata", description="List Key Vault secret metadata without retrieving values or tags.")
+def list_key_vault_secret_metadata_tool(vault_uri: str, limit: int | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return list_key_vault_secret_metadata(vault_uri=vault_uri, limit=limit)
+
+
 @mcp.tool(name="query_log_analytics", description=TOOL_DEFINITIONS[14]["description"])
 def query_log_analytics_tool(
     workspace_id: str,
@@ -1102,9 +1259,10 @@ def list_openai_deployments_tool(
     resource_group: str,
     account_name: str,
     limit: int = 50,
+    cursor: str | None = None,
 ) -> dict[str, Any]:
     set_correlation_id()
-    return list_openai_deployments(resource_group=resource_group, account_name=account_name, limit=limit)
+    return list_openai_deployments(resource_group=resource_group, account_name=account_name, limit=limit, cursor=cursor)
 
 
 @mcp.tool(name="deploy_openai_model", description=TOOL_DEFINITIONS[19]["description"])
@@ -1219,10 +1377,40 @@ def list_aks_clusters_tool(resource_group: str | None = None, limit: int | None 
     return list_aks_clusters(resource_group=resource_group, limit=limit)
 
 
+@mcp.tool(name="list_aks_node_pools", description="List AKS node-pool capacity and configuration metadata without credentials.")
+def list_aks_node_pools_tool(resource_group: str, cluster_name: str, limit: int | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return list_aks_node_pools(resource_group, cluster_name, limit)
+
+
 @mcp.tool(name="list_function_apps", description=TOOL_DEFINITIONS[25]["description"])
 def list_function_apps_tool(resource_group: str | None = None, limit: int | None = None) -> dict[str, Any]:
     set_correlation_id()
     return list_function_apps(resource_group=resource_group, limit=limit)
+
+
+@mcp.tool(name="list_app_service_slots", description="List App Service deployment-slot metadata without configuration values.")
+def list_app_service_slots_tool(resource_group: str, app_name: str, limit: int | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return list_app_service_slots(resource_group, app_name, limit)
+
+
+@mcp.tool(name="list_container_apps", description="List Container App metadata without configuration, revision templates, or secrets.")
+def list_container_apps_tool(resource_group: str, limit: int | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return list_container_apps(resource_group, limit)
+
+
+@mcp.tool(name="list_container_app_environments", description="List Container Apps environment metadata without log credentials or network details.")
+def list_container_app_environments_tool(resource_group: str, limit: int | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return list_container_app_environments(resource_group, limit)
+
+
+@mcp.tool(name="list_container_app_revisions", description="List Container App revision health metadata without revision templates or secrets.")
+def list_container_app_revisions_tool(resource_group: str, app_name: str, limit: int | None = None) -> dict[str, Any]:
+    set_correlation_id()
+    return list_container_app_revisions(resource_group, app_name, limit)
 
 
 @mcp.tool(name="query_function_app_logs", description=TOOL_DEFINITIONS[26]["description"])
@@ -1388,7 +1576,18 @@ def create_http_app() -> FastAPI:
     Returns:
         A configured ``FastAPI`` application instance.
     """
-    app = FastAPI(title=SERVER_NAME)
+    streamable_http_factory = getattr(mcp, "streamable_http_app", None)
+    streamable_app = streamable_http_factory() if callable(streamable_http_factory) else None
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        if streamable_app is not None:
+            async with streamable_app.router.lifespan_context(streamable_app):
+                yield
+        else:
+            yield
+
+    app = FastAPI(title=SERVER_NAME, lifespan=lifespan)
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -1398,9 +1597,11 @@ def create_http_app() -> FastAPI:
         except ConfigError:
             return {"status": "degraded"}
 
-    streamable_http_factory = getattr(mcp, "streamable_http_app", None)
-    if callable(streamable_http_factory):
-        app.mount("/mcp", streamable_http_factory())
+    if streamable_app is not None:
+        # FastMCP already registers its streamable endpoint at `/mcp` within
+        # the returned ASGI app. Mount it at the root so the public endpoint
+        # remains `/mcp` instead of the accidental `/mcp/mcp`.
+        app.mount("/", streamable_app)
 
     return app
 
@@ -1421,6 +1622,7 @@ def run() -> None:
     """
     settings = load_settings()
     configure_logging(settings.log_level)
+    configure_tracing()
     mcp.run(transport="streamable-http", host="0.0.0.0", port=8000)
 
 

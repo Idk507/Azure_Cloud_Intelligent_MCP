@@ -18,7 +18,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 COPY --from=builder /install /usr/local
 COPY src ./src
-COPY azure ./azure
 COPY README.md .
 
 RUN groupadd --system appgroup \

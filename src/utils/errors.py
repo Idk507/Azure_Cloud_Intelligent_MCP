@@ -10,10 +10,21 @@ try:
         ServiceRequestError,
     )
 except Exception:  # pragma: no cover
-    ClientAuthenticationError = type("ClientAuthenticationError", (Exception,), {})
-    HttpResponseError = type("HttpResponseError", (Exception,), {})
-    ResourceNotFoundError = type("ResourceNotFoundError", (Exception,), {})
-    ServiceRequestError = type("ServiceRequestError", (Exception,), {})
+    class HttpResponseError(Exception):
+        """SDK-compatible fallback used only when optional Azure packages are absent."""
+
+        def __init__(self, message: str = "", status_code: int | None = None):
+            super().__init__(message)
+            self.status_code = status_code
+
+    class ResourceNotFoundError(HttpResponseError):
+        pass
+
+    class ClientAuthenticationError(HttpResponseError):
+        pass
+
+    class ServiceRequestError(HttpResponseError):
+        pass
 
 
 def sanitize_azure_error(exc: Exception) -> dict[str, Any]:

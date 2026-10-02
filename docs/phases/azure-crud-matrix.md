@@ -25,7 +25,7 @@ Use `list_azure_resource_providers` to discover registered namespaces/resource t
 | Storage accounts | List | Create | Not implemented | Not implemented | Partial CRUD |
 | Blob data | Download | Upload | Overwrite upload only | Not implemented | Partial data-plane |
 | Networking | VNet/NSG/public IP list | Public IP create | Not implemented | Not implemented | Partial CRUD |
-| Key Vault | Vault metadata | Not implemented | Not implemented | Not implemented | Metadata only |
+| Key Vault | Vault and secret metadata | Not implemented | Not implemented | Not implemented | Metadata only; values are never retrieved |
 | Log Analytics/metrics | Query/read | Not applicable | Not applicable | Not applicable | Bounded read-only |
 | Cost/Advisor | Read | Not applicable | Not applicable | Not applicable | Read-only |
 | Azure OpenAI | Deployment list | Deployment create/update adapter | Deployment create/update adapter | Not implemented | Partial CRUD |

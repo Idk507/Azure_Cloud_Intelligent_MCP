@@ -18,9 +18,27 @@ REQUIRED = {
     "pytest_cov": "pytest_cov",
     "azure.core": "azure.core",
     "azure.identity": "azure.identity",
+    "jwt": "jwt",
     "azure.mgmt.compute": "azure.mgmt.compute",
     "azure.mgmt.resource": "azure.mgmt.resource",
+    "azure.mgmt.authorization": "azure.mgmt.authorization",
+    "azure.mgmt.appcontainers": "azure.mgmt.appcontainers",
+    "azure.mgmt.advisor": "azure.mgmt.advisor",
+    "azure.mgmt.containerservice": "azure.mgmt.containerservice",
+    "azure.mgmt.cognitiveservices": "azure.mgmt.cognitiveservices",
+    "azure.mgmt.costmanagement": "azure.mgmt.costmanagement",
+    "azure.mgmt.keyvault": "azure.mgmt.keyvault",
+    "azure.mgmt.network": "azure.mgmt.network",
+    "azure.mgmt.policyinsights": "azure.mgmt.policyinsights",
+    "azure.mgmt.resourcegraph": "azure.mgmt.resourcegraph",
     "azure.mgmt.storage": "azure.mgmt.storage",
+    "azure.mgmt.web": "azure.mgmt.web",
+    "azure.keyvault.secrets": "azure.keyvault.secrets",
+    "azure.monitor.query": "azure.monitor.query",
+    "azure.storage.blob": "azure.storage.blob",
+    "azure.ai.projects": "azure.ai.projects",
+    "opentelemetry.sdk": "opentelemetry.sdk",
+    "opentelemetry.exporter.otlp.proto.http": "opentelemetry.exporter.otlp.proto.http",
 }
 
 
@@ -39,6 +57,7 @@ def main() -> int:
         "python": sys.version,
         "results": results,
         "missing": missing,
+        "ready_for_full_tests": len(missing) == 0,
         "ready_for_full_phase1_tests": len(missing) == 0,
     }
     print(json.dumps(payload, indent=2, sort_keys=True))

@@ -14,6 +14,8 @@
 | `start_virtual_machine` | `controlled_action` | `Virtual Machine Contributor` |
 | `stop_virtual_machine` | `controlled_action` | `Virtual Machine Contributor` |
 | `list_storage_accounts` | `read_only` | `Reader` (or `Storage Account Contributor`) |
+| `list_storage_containers` | `read_only` | `Storage Blob Data Reader` |
+| `get_storage_lifecycle_policy` | `read_only` | `Storage Account Contributor` |
 | `create_storage_account` | `controlled_action` | `Storage Account Contributor` |
 | `upload_blob_content` | `controlled_action` | `Storage Blob Data Contributor` |
 | `download_blob_content` | `sensitive_data` | `Storage Blob Data Reader` |
@@ -22,6 +24,7 @@
 | `list_public_ip_addresses` | `read_only` | `Reader` |
 | `create_public_ip_address` | `controlled_action` | `Network Contributor` |
 | `list_key_vaults` | `read_only` | `Reader` |
+| `list_key_vault_secret_metadata` | `sensitive_data` | `Key Vault Secrets User` |
 | `query_log_analytics` | `sensitive_data` | `Log Analytics Reader` |
 | `get_resource_metrics` | `read_only` | `Monitoring Reader` |
 | `get_cost_summary` | `sensitive_data` | `Cost Management Reader` |
@@ -29,11 +32,19 @@
 | `list_openai_deployments` | `read_only` | `Cognitive Services Contributor` |
 | `deploy_openai_model` | `controlled_action` | `Cognitive Services Contributor` |
 | `list_ai_foundry_agents` | `read_only` | `Azure AI User` |
+| `list_ai_foundry_evaluations` | `sensitive_data` | `Foundry User` |
+| `list_ai_foundry_evaluation_runs` | `sensitive_data` | `Foundry User` |
+| `create_ai_foundry_evaluation` | `controlled_action` | `Foundry User` |
 | `create_ai_foundry_agent` | `controlled_action` | `Azure AI Developer` |
 | `delete_ai_foundry_agent` | `controlled_action` | `Azure AI Developer` |
 | `diagnose_virtual_machine` | `read_only` | `Reader` plus `Monitoring Reader` |
 | `list_aks_clusters` | `read_only` | `Azure Kubernetes Service Contributor` |
+| `list_aks_node_pools` | `read_only` | `Azure Kubernetes Service Contributor` |
 | `list_function_apps` | `read_only` | `Reader` |
+| `list_app_service_slots` | `read_only` | `Website Contributor` |
+| `list_container_apps` | `read_only` | `Reader` |
+| `list_container_app_environments` | `read_only` | `Reader` |
+| `list_container_app_revisions` | `read_only` | `Reader` |
 | `query_function_app_logs` | `sensitive_data` | `Log Analytics Reader` |
 | `list_sql_databases` | `read_only` | `SQL DB Contributor` |
 | `list_cosmos_accounts` | `read_only` | `Reader` |

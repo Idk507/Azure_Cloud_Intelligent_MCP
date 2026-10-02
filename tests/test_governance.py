@@ -35,3 +35,15 @@ class GovernanceTestCase(unittest.TestCase):
             result = governance.list_role_assignments("/subscriptions/other")
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "VALIDATION_ERROR")
+
+    def test_supports_current_policy_sdk_list_methods(self) -> None:
+        definition = SimpleNamespace(id="/policy/current", name="current", display_name="Current", policy_type="BuiltIn", mode="All", description="safe")
+        assignment = SimpleNamespace(id="/assignment/current", name="current", display_name="Current", policy_definition_id="/policy/current", scope="/subscriptions/sub-123", enforcement_mode="Default")
+        self.clients.policy = SimpleNamespace(
+            policy_definitions=SimpleNamespace(list=lambda: [definition]),
+            policy_assignments=SimpleNamespace(list=lambda: [assignment]),
+        )
+        with patch.object(governance.azure_clients, "get_azure_clients", return_value=self.clients):
+            scope = "/subscriptions/sub-123"
+            self.assertTrue(governance.list_policy_definitions(scope)["ok"])
+            self.assertTrue(governance.list_policy_assignments(scope)["ok"])

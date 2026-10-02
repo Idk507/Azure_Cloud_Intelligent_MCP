@@ -42,6 +42,7 @@
   - Files likely touched: `src/tools/resource_mgmt.py`, `src/tools/ai.py`, `src/policies.py`, `tests/test_generic_crud.py`.
 
 - [ ] Task 6: Export OpenTelemetry traces and RED metrics.
+  - Progress: Optional OTLP trace and metric exporters emit only the bounded tool name, outcome, safety class, and duration dimensions. The deployment baseline can now create an opt-in workspace-based Application Insights component; the remaining verification is to connect it to the Foundry project and run an Application Insights smoke test.
   - Acceptance: Tool spans preserve correlation IDs, metrics use bounded labels, and no secrets are attributes.
   - Verify: Telemetry unit tests plus an opt-in Application Insights smoke test.
   - Dependencies: Task 5.
@@ -53,8 +54,8 @@
 
 ## Phase 3
 
-- [ ] Task 7: Add RBAC and Azure Policy read-only discovery.
-  - Progress: Role assignments, policy definitions/assignments, and bounded Policy Insights compliance reads are implemented.
+- [x] Task 7: Add RBAC and Azure Policy read-only discovery.
+  - Completed: Role assignments, policy definitions/assignments, and bounded Policy Insights compliance reads are implemented and scope-validated.
   - Acceptance: Roles, assignments, policy definitions/assignments, and compliance results are bounded and scope-validated.
   - Verify: Mocked management-client tests and minimum-role documentation.
   - Dependencies: Task 3.
@@ -62,21 +63,22 @@
 
 ## Phase 4
 
-- [ ] Task 8: Add Foundry model/deployment and project-connection discovery.
-  - Progress: Bounded model, Azure OpenAI deployment, and connection discovery are implemented behind the Foundry adapter.
+- [x] Task 8: Add Foundry model/deployment and project-connection discovery.
+  - Completed: Bounded model, Azure OpenAI deployment, and connection discovery are implemented; each inventory path supports opaque SDK continuation cursors and excludes credentials.
   - Acceptance: Project endpoint validation, no credential values returned, model/deployment/connection reads are paginated.
   - Verify: Adapter contract tests.
   - Dependencies: Tasks 2 and 6.
   - Files likely touched: `src/foundry_adapter.py`, `src/tools/ai.py`, `tests/test_foundry.py`.
 
-- [ ] Task 9: Add approved Foundry connection CRUD and agent session/invocation reads.
+- [x] Task 9: Add approved Foundry connection CRUD and agent session/invocation reads.
+  - Completed: Connection get/upsert/delete operations require request-bound approval for mutations; thread, message, and run reads return metadata only.
   - Acceptance: Connection mutations use approval IDs; agent session reads exclude sensitive content unless explicitly authorized.
   - Verify: Approval and redaction tests.
   - Dependencies: Task 8.
   - Files likely touched: `src/foundry_adapter.py`, `src/tools/ai.py`, `src/validation.py`, `tests/test_foundry.py`.
 
-- [ ] Task 10: Add Foundry evaluation and tracing-status tools.
-  - Progress: Redacted tracing readiness status is implemented; evaluation reads and approved creation remain.
+- [x] Task 10: Add Foundry evaluation and tracing-status tools.
+  - Completed: Tracing readiness is redacted; evaluation and run reads are bounded; evaluation creation is HITL-protected.
   - Acceptance: Evaluation reads are bounded; evaluation creation is HITL-protected; tracing reports configuration status without exposing connection strings.
   - Verify: Adapter contract tests and opt-in project smoke test.
   - Dependencies: Tasks 6 and 9.
@@ -85,16 +87,19 @@
 ## Checkpoint: Foundry readiness
 
 - [ ] A dedicated Foundry project proves agent, connection, evaluation, and trace-status workflows with redacted audit evidence.
+  - Progress: The live project successfully completed a disposable agent `plan -> approval -> create -> read -> separate approval -> delete` lifecycle on 2026-10-02. Connection, evaluation, and trace-status smoke checks remain opt-in because they require project resources and telemetry configuration not present in the validation project.
 
 ## Phase 5 and 6
 
 - [ ] Task 11: Select and implement provider-specific Azure service slices from verified demand.
+  - Progress: Added Key Vault secret-metadata, AKS node-pool, Storage container/lifecycle-policy, App Service slot, Container App, managed-environment, and revision-health reads; all are bounded and non-mutating.
   - Acceptance: Each slice has a service contract, minimal RBAC, preflight/rollback story, and isolated tests.
   - Verify: Focused tests plus one non-production live validation per slice.
   - Dependencies: Task 5.
   - Files likely touched: Service-specific modules and tests only.
 
 - [ ] Task 12: Complete production operational readiness.
+  - Progress: The Container App has liveness and readiness probes, Bicep compilation is a CI gate, the error/latency runbook is available, and Bicep can optionally create the workspace-based Application Insights component required for Foundry tracing. Alert routing plus staging failure and rollback validation require a non-production Azure environment and notification target.
   - Acceptance: Managed identity, telemetry, alerts, CI gates, runbooks, and a tested rollback path are in place.
   - Verify: Staging deployment and failure simulation.
   - Dependencies: Tasks 6, 7, 10, and 11.

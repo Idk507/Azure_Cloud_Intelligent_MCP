@@ -25,6 +25,20 @@ def build_credential(settings: Settings):
     Raises:
         ConfigError: When only a subset of the service-principal fields are set.
     """
+    if settings.auth_mode == "hosted":
+        from mcp.server.auth.middleware.auth_context import get_access_token
+        from azure.identity import OnBehalfOfCredential
+
+        access_token = get_access_token()
+        if access_token is None or not access_token.claims or not access_token.claims.get("tid"):
+            raise ConfigError("Hosted Azure access requires a validated per-user OAuth token.")
+        return OnBehalfOfCredential(
+            tenant_id=access_token.claims["tid"],
+            client_id=settings.entra_api_client_id,
+            client_secret=settings.entra_api_client_secret,
+            user_assertion=access_token.token,
+        )
+
     from azure.identity import ClientSecretCredential, DefaultAzureCredential
 
     explicit_values = [settings.tenant_id, settings.client_id, settings.client_secret]

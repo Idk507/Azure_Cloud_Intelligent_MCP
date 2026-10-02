@@ -18,7 +18,7 @@ Date: 2026-09-21
 
 ### Tool contracts, RBAC, safety class, happy and failure paths documented and tested
 
-- Contracts documented in docs/phase3-slice3.1-contracts.md.
+- Contracts documented in `phase3-slice3.1-contracts.md`.
 - RBAC and safety mappings documented in docs/security-rbac.md.
 - Metadata registered in src/tool_registry.py.
 - Tool schemas and MCP exposure added in src/app.py.
@@ -32,7 +32,7 @@ Date: 2026-09-21
 
 ### Development-scope representative Azure call without production impact
 
-- Manual call guidance documented in docs/phase3-slice3.1-contracts.md.
+- Manual call guidance documented in `phase3-slice3.1-contracts.md`.
 - This environment remains policy-restricted, so manual non-production Azure execution evidence
   must be captured in the next live Azure validation step.
 

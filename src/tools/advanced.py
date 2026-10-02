@@ -118,6 +118,29 @@ def list_aks_clusters(resource_group: str | None = None, limit: int | None = Non
     )
 
 
+def list_aks_node_pools(resource_group: str, cluster_name: str, limit: int | None = None) -> dict[str, Any]:
+    """List AKS node-pool capacity/configuration metadata without credentials."""
+    started = time.perf_counter()
+    tool_name = "list_aks_node_pools"
+    metadata = get_tool_metadata(tool_name)
+    try:
+        validated_rg = ResourceGroupInput(resource_group=resource_group).resource_group
+        if not FUNCTION_APP_NAME_PATTERN.match(cluster_name.strip()):
+            raise ValueError("cluster_name contains unsupported characters.")
+        PaginationInput(limit=limit)
+        max_results = _resolve_limit(limit)
+        pools = run_with_timeout(lambda: list(azure_clients.get_azure_clients().aks.agent_pools.list(validated_rg, cluster_name.strip())), load_settings().request_timeout_seconds)
+        normalized = [{"id": getattr(pool, "id", None), "name": getattr(pool, "name", None), "count": getattr(pool, "count", None), "vm_size": getattr(pool, "vm_size", None), "mode": getattr(pool, "mode", None), "type": getattr(pool, "type", None), "provisioning_state": getattr(pool, "provisioning_state", None)} for pool in pools[:max_results]]
+        audit_tool_call(logger, tool_name=tool_name, status="success", duration_ms=round((time.perf_counter() - started) * 1000, 2), safety_class=metadata.safety_class.value, target_context={"resource_group": validated_rg, "cluster_name": cluster_name, "limit": limit})
+        return {"ok": True, "resource_group": validated_rg, "cluster_name": cluster_name.strip(), "count": len(normalized), "truncated": len(pools) > max_results, "node_pools": normalized}
+    except (ValidationError, ValueError) as exc:
+        return to_validation_error_payload(exc) if isinstance(exc, ValidationError) else {"ok": False, "error": {"code": "VALIDATION_ERROR", "message": str(exc)}}
+    except Exception as exc:  # pragma: no cover
+        error = as_tool_error(exc)
+        audit_tool_call(logger, tool_name=tool_name, status="error", duration_ms=round((time.perf_counter() - started) * 1000, 2), safety_class=metadata.safety_class.value, target_context={"resource_group": resource_group, "cluster_name": cluster_name, "limit": limit}, error_code=error["error"]["code"])
+        return error
+
+
 def list_function_apps(resource_group: str | None = None, limit: int | None = None) -> dict[str, Any]:
     """List bounded Azure Function App metadata without invoking application code."""
     return _inventory(
@@ -128,6 +151,147 @@ def list_function_apps(resource_group: str | None = None, limit: int | None = No
         collection_attribute="web_apps",
         output_key="function_apps",
     )
+
+
+def list_app_service_slots(resource_group: str, app_name: str, limit: int | None = None) -> dict[str, Any]:
+    """List App Service deployment-slot metadata without configuration values."""
+    started = time.perf_counter()
+    tool_name = "list_app_service_slots"
+    metadata = get_tool_metadata(tool_name)
+    try:
+        validated_rg = ResourceGroupInput(resource_group=resource_group).resource_group
+        if not FUNCTION_APP_NAME_PATTERN.match(app_name.strip()):
+            raise ValueError("app_name contains unsupported characters.")
+        PaginationInput(limit=limit)
+        max_results = _resolve_limit(limit)
+        slots = run_with_timeout(lambda: list(azure_clients.get_azure_clients().appservice.web_apps.list_slots(validated_rg, app_name.strip())), load_settings().request_timeout_seconds)
+        normalized = [{"id": getattr(slot, "id", None), "name": getattr(slot, "name", None), "location": getattr(slot, "location", None), "state": getattr(slot, "state", None), "enabled": getattr(slot, "enabled", None), "https_only": getattr(slot, "https_only", None)} for slot in slots[:max_results]]
+        audit_tool_call(logger, tool_name=tool_name, status="success", duration_ms=round((time.perf_counter() - started) * 1000, 2), safety_class=metadata.safety_class.value, target_context={"resource_group": validated_rg, "app_name": app_name, "limit": limit})
+        return {"ok": True, "resource_group": validated_rg, "app_name": app_name.strip(), "count": len(normalized), "truncated": len(slots) > max_results, "slots": normalized}
+    except (ValidationError, ValueError) as exc:
+        return to_validation_error_payload(exc) if isinstance(exc, ValidationError) else {"ok": False, "error": {"code": "VALIDATION_ERROR", "message": str(exc)}}
+    except Exception as exc:  # pragma: no cover
+        error = as_tool_error(exc)
+        audit_tool_call(logger, tool_name=tool_name, status="error", duration_ms=round((time.perf_counter() - started) * 1000, 2), safety_class=metadata.safety_class.value, target_context={"resource_group": resource_group, "app_name": app_name, "limit": limit}, error_code=error["error"]["code"])
+        return error
+
+
+def list_container_apps(resource_group: str, limit: int | None = None) -> dict[str, Any]:
+    """List Container App control-plane metadata without configuration or secrets."""
+    started = time.perf_counter()
+    tool_name = "list_container_apps"
+    metadata = get_tool_metadata(tool_name)
+    try:
+        validated_rg = ResourceGroupInput(resource_group=resource_group).resource_group
+        PaginationInput(limit=limit)
+        clients = azure_clients.get_azure_clients()
+        if clients.containerapps is None:
+            return _service_not_configured("Azure Container Apps")
+        max_results = _resolve_limit(limit)
+        apps = run_with_timeout(
+            lambda: list(clients.containerapps.container_apps.list_by_resource_group(validated_rg)),
+            load_settings().request_timeout_seconds,
+        )
+        normalized = [
+            {
+                "id": getattr(app, "id", None),
+                "name": getattr(app, "name", None),
+                "location": getattr(app, "location", None),
+                "provisioning_state": getattr(app, "provisioning_state", None),
+                "managed_environment_id": getattr(app, "managed_environment_id", None),
+                "latest_revision_name": getattr(app, "latest_revision_name", None),
+                "latest_ready_revision_name": getattr(app, "latest_ready_revision_name", None),
+                "running_status": getattr(app, "running_status", None),
+                "workload_profile_name": getattr(app, "workload_profile_name", None),
+            }
+            for app in apps[:max_results]
+        ]
+        audit_tool_call(logger, tool_name=tool_name, status="success", duration_ms=round((time.perf_counter() - started) * 1000, 2), safety_class=metadata.safety_class.value, target_context={"resource_group": validated_rg, "limit": limit})
+        return {"ok": True, "resource_group": validated_rg, "count": len(normalized), "truncated": len(apps) > max_results, "container_apps": normalized}
+    except ValidationError as exc:
+        return to_validation_error_payload(exc)
+    except Exception as exc:  # pragma: no cover
+        error = as_tool_error(exc)
+        audit_tool_call(logger, tool_name=tool_name, status="error", duration_ms=round((time.perf_counter() - started) * 1000, 2), safety_class=metadata.safety_class.value, target_context={"resource_group": resource_group, "limit": limit}, error_code=error["error"]["code"])
+        return error
+
+
+def list_container_app_environments(resource_group: str, limit: int | None = None) -> dict[str, Any]:
+    """List Container Apps environment metadata without log credentials or network details."""
+    started = time.perf_counter()
+    tool_name = "list_container_app_environments"
+    metadata = get_tool_metadata(tool_name)
+    try:
+        validated_rg = ResourceGroupInput(resource_group=resource_group).resource_group
+        PaginationInput(limit=limit)
+        clients = azure_clients.get_azure_clients()
+        if clients.containerapps is None:
+            return _service_not_configured("Azure Container Apps")
+        max_results = _resolve_limit(limit)
+        environments = run_with_timeout(
+            lambda: list(clients.containerapps.managed_environments.list_by_resource_group(validated_rg)),
+            load_settings().request_timeout_seconds,
+        )
+        normalized = [
+            {
+                "id": getattr(environment, "id", None),
+                "name": getattr(environment, "name", None),
+                "location": getattr(environment, "location", None),
+                "provisioning_state": getattr(environment, "provisioning_state", None),
+                "zone_redundant": getattr(environment, "zone_redundant", None),
+                "is_internal": getattr(getattr(environment, "vnet_configuration", None), "internal", None),
+            }
+            for environment in environments[:max_results]
+        ]
+        audit_tool_call(logger, tool_name=tool_name, status="success", duration_ms=round((time.perf_counter() - started) * 1000, 2), safety_class=metadata.safety_class.value, target_context={"resource_group": validated_rg, "limit": limit})
+        return {"ok": True, "resource_group": validated_rg, "count": len(normalized), "truncated": len(environments) > max_results, "environments": normalized}
+    except ValidationError as exc:
+        return to_validation_error_payload(exc)
+    except Exception as exc:  # pragma: no cover
+        error = as_tool_error(exc)
+        audit_tool_call(logger, tool_name=tool_name, status="error", duration_ms=round((time.perf_counter() - started) * 1000, 2), safety_class=metadata.safety_class.value, target_context={"resource_group": resource_group, "limit": limit}, error_code=error["error"]["code"])
+        return error
+
+
+def list_container_app_revisions(resource_group: str, app_name: str, limit: int | None = None) -> dict[str, Any]:
+    """List Container App revision health metadata without revision templates or secrets."""
+    started = time.perf_counter()
+    tool_name = "list_container_app_revisions"
+    metadata = get_tool_metadata(tool_name)
+    try:
+        validated_rg = ResourceGroupInput(resource_group=resource_group).resource_group
+        if not FUNCTION_APP_NAME_PATTERN.match(app_name.strip()):
+            raise ValueError("app_name contains unsupported characters.")
+        PaginationInput(limit=limit)
+        clients = azure_clients.get_azure_clients()
+        if clients.containerapps is None:
+            return _service_not_configured("Azure Container Apps")
+        max_results = _resolve_limit(limit)
+        revisions = run_with_timeout(
+            lambda: list(clients.containerapps.container_apps_revisions.list_revisions(validated_rg, app_name.strip())),
+            load_settings().request_timeout_seconds,
+        )
+        normalized = [
+            {
+                "id": getattr(revision, "id", None),
+                "name": getattr(revision, "name", None),
+                "active": getattr(getattr(revision, "properties", None), "active", None),
+                "created_time": getattr(getattr(revision, "properties", None), "created_time", None),
+                "traffic_weight": getattr(getattr(revision, "properties", None), "traffic_weight", None),
+                "provisioning_state": getattr(getattr(revision, "properties", None), "provisioning_state", None),
+                "running_state": getattr(getattr(revision, "properties", None), "running_state", None),
+                "health_state": getattr(getattr(revision, "properties", None), "health_state", None),
+            }
+            for revision in revisions[:max_results]
+        ]
+        audit_tool_call(logger, tool_name=tool_name, status="success", duration_ms=round((time.perf_counter() - started) * 1000, 2), safety_class=metadata.safety_class.value, target_context={"resource_group": validated_rg, "app_name": app_name, "limit": limit})
+        return {"ok": True, "resource_group": validated_rg, "app_name": app_name.strip(), "count": len(normalized), "truncated": len(revisions) > max_results, "revisions": normalized}
+    except (ValidationError, ValueError) as exc:
+        return to_validation_error_payload(exc) if isinstance(exc, ValidationError) else {"ok": False, "error": {"code": "VALIDATION_ERROR", "message": str(exc)}}
+    except Exception as exc:  # pragma: no cover
+        error = as_tool_error(exc)
+        audit_tool_call(logger, tool_name=tool_name, status="error", duration_ms=round((time.perf_counter() - started) * 1000, 2), safety_class=metadata.safety_class.value, target_context={"resource_group": resource_group, "app_name": app_name, "limit": limit}, error_code=error["error"]["code"])
+        return error
 
 
 def query_function_app_logs(

@@ -24,6 +24,8 @@ class ServerTestCase(unittest.TestCase):
         self.assertIn("list_resource_groups", names)
         self.assertIn("list_virtual_machines", names)
         self.assertIn("list_storage_accounts", names)
+        self.assertIn("list_storage_containers", names)
+        self.assertIn("get_storage_lifecycle_policy", names)
         self.assertIn("get_virtual_machine_status", names)
         self.assertIn("start_virtual_machine", names)
         self.assertIn("stop_virtual_machine", names)
@@ -35,6 +37,7 @@ class ServerTestCase(unittest.TestCase):
         self.assertIn("list_public_ip_addresses", names)
         self.assertIn("create_public_ip_address", names)
         self.assertIn("list_key_vaults", names)
+        self.assertIn("list_key_vault_secret_metadata", names)
         self.assertIn("query_log_analytics", names)
         self.assertIn("get_resource_metrics", names)
         self.assertIn("get_cost_summary", names)
@@ -49,7 +52,12 @@ class ServerTestCase(unittest.TestCase):
         self.assertIn("delete_ai_foundry_agent", names)
         self.assertIn("diagnose_virtual_machine", names)
         self.assertIn("list_aks_clusters", names)
+        self.assertIn("list_aks_node_pools", names)
         self.assertIn("list_function_apps", names)
+        self.assertIn("list_app_service_slots", names)
+        self.assertIn("list_container_apps", names)
+        self.assertIn("list_container_app_environments", names)
+        self.assertIn("list_container_app_revisions", names)
         self.assertIn("query_function_app_logs", names)
         self.assertIn("list_sql_databases", names)
         self.assertIn("list_cosmos_accounts", names)
@@ -75,14 +83,24 @@ class ServerTestCase(unittest.TestCase):
         self.assertIn("get_ai_foundry_trace_status", names)
         self.assertIn("plan_ai_foundry_connection_deletion", names)
         self.assertIn("delete_ai_foundry_project_connection", names)
+        self.assertIn("get_ai_foundry_project_connection", names)
+        self.assertIn("plan_ai_foundry_connection_upsert", names)
+        self.assertIn("upsert_ai_foundry_project_connection", names)
+        self.assertIn("list_ai_foundry_thread_messages", names)
+        self.assertIn("list_ai_foundry_thread_runs", names)
+        self.assertIn("list_ai_foundry_agent_threads", names)
+        self.assertIn("list_ai_foundry_evaluations", names)
+        self.assertIn("list_ai_foundry_evaluation_runs", names)
+        self.assertIn("plan_ai_foundry_evaluation_creation", names)
+        self.assertIn("create_ai_foundry_evaluation", names)
 
-    def test_health_endpoint_returns_degraded_without_subscription(self) -> None:
+    def test_health_endpoint_returns_ok_without_subscription_for_portable_onboarding(self) -> None:
         previous = os.environ.pop("AZURE_SUBSCRIPTION_ID", None)
         try:
             client = TestClient(app.http_app)
             response = client.get("/health")
             self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.json()["status"], "degraded")
+            self.assertEqual(response.json()["status"], "ok")
         finally:
             if previous is not None:
                 os.environ["AZURE_SUBSCRIPTION_ID"] = previous
@@ -100,6 +118,29 @@ class ServerTestCase(unittest.TestCase):
                 os.environ.pop("AZURE_SUBSCRIPTION_ID", None)
             else:
                 os.environ["AZURE_SUBSCRIPTION_ID"] = previous
+
+    def test_streamable_mcp_initialize_is_available_at_mcp(self) -> None:
+        """Keep the documented public connector URL stable and reachable."""
+        request = {
+            "jsonrpc": "2.0",
+            "id": "route-regression-test",
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "test-client", "version": "1.0"},
+            },
+        }
+        headers = {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        }
+
+        with TestClient(app.http_app, base_url="http://localhost:8000") as client:
+            response = client.post("/mcp", json=request, headers=headers)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Azure Cloud Intelligence MCP", response.text)
 
 
 if __name__ == "__main__":

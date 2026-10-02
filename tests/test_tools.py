@@ -7,10 +7,9 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from azure.core.exceptions import HttpResponseError
-
 from src import approvals
 from src.tools import compute, keyvault, network, resource_mgmt, storage
+from src.utils.errors import HttpResponseError
 
 
 @dataclass
@@ -152,6 +151,9 @@ class _FakeBlobServiceClient:
             raise AssertionError("unexpected container")
         return self.container
 
+    def list_containers(self):
+        return [SimpleNamespace(name="container-a", last_modified="now", public_access=None, metadata={"owner": "ops"})]
+
 
 class ToolsTestCase(unittest.TestCase):
     def setUp(self) -> None:
@@ -242,7 +244,10 @@ class ToolsTestCase(unittest.TestCase):
         self.assertEqual(result["error"]["code"], "TIMEOUT")
 
     def test_throttling_error_is_sanitized(self) -> None:
-        throttled_error = HttpResponseError("Too many requests", status_code=429)
+        throttled_error = HttpResponseError(
+            "Too many requests",
+            response=SimpleNamespace(status_code=429, reason="Too many requests"),
+        )
         with patch.object(resource_mgmt.azure_clients, "get_azure_clients", side_effect=throttled_error):
             result = resource_mgmt.list_resource_groups(limit=10)
 
@@ -250,7 +255,10 @@ class ToolsTestCase(unittest.TestCase):
         self.assertEqual(result["error"]["code"], "THROTTLED")
 
     def test_authorization_error_is_sanitized(self) -> None:
-        forbidden_error = HttpResponseError("Forbidden", status_code=403)
+        forbidden_error = HttpResponseError(
+            "Forbidden",
+            response=SimpleNamespace(status_code=403, reason="Forbidden"),
+        )
         with patch.object(resource_mgmt.azure_clients, "get_azure_clients", side_effect=forbidden_error):
             result = resource_mgmt.list_resource_groups(limit=10)
 
@@ -426,6 +434,30 @@ class ToolsTestCase(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["key_vaults"][0]["name"], "vault-a")
         self.assertNotIn("secrets", result["key_vaults"][0])
+
+    def test_list_key_vault_secret_metadata_never_returns_values(self) -> None:
+        secrets = [SimpleNamespace(id="https://vault-a.vault.azure.net/secrets/api-key/version", name="api-key", enabled=True, created_on="now", updated_on="now", expires_on=None, value="must-not-leak")]
+        client = SimpleNamespace(list_properties_of_secrets=lambda: secrets)
+        with patch.object(keyvault, "_secret_client", return_value=client):
+            result = keyvault.list_key_vault_secret_metadata("https://vault-a.vault.azure.net")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["secrets"][0]["name"], "api-key")
+        self.assertNotIn("value", result["secrets"][0])
+
+    def test_list_storage_containers_returns_metadata_only(self) -> None:
+        with patch.object(storage, "_build_blob_service_client", return_value=_FakeBlobServiceClient()):
+            result = storage.list_storage_containers("accounta")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["containers"][0]["name"], "container-a")
+        self.assertNotIn("metadata", result["containers"][0])
+
+    def test_get_storage_lifecycle_policy_returns_rules(self) -> None:
+        clients = self._fake_clients()
+        clients.storage.management_policies = SimpleNamespace(get=lambda resource_group, account_name: SimpleNamespace(id="/policy/1", name="default", policy=SimpleNamespace(rules=[SimpleNamespace(name="archive-old", enabled=True, type="Lifecycle", definition={"actions": {"baseBlob": {"tierToArchive": {"daysAfterModificationGreaterThan": 30}}}})])))
+        with patch.object(storage.azure_clients, "get_azure_clients", return_value=clients):
+            result = storage.get_storage_lifecycle_policy("rg-a", "stacc1")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["rules"][0]["name"], "archive-old")
 
 
 if __name__ == "__main__":

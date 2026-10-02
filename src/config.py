@@ -11,7 +11,7 @@ class ConfigError(ValueError):
 
 @dataclass(frozen=True)
 class Settings:
-    subscription_id: str
+    subscription_id: str | None
     tenant_id: str | None
     client_id: str | None
     client_secret: str | None
@@ -21,6 +21,12 @@ class Settings:
     max_results: int
     retry_total: int
     retry_backoff_factor: float
+    auth_mode: str
+    entra_api_client_id: str | None
+    entra_api_client_secret: str | None
+    entra_allowed_tenant_ids: tuple[str, ...]
+    mcp_public_url: str | None
+    mcp_allowed_hosts: tuple[str, ...]
 
 
 _DEFAULT_LOCATION = "eastus"
@@ -93,8 +99,10 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     """Load and validate application settings from environment variables.
 
     Reads all configuration from ``env`` (or ``os.environ`` when ``None``).
-    ``AZURE_SUBSCRIPTION_ID`` is mandatory; all other variables fall back to
-    safe defaults.  Numeric variables are parsed and validated through
+    ``AZURE_SUBSCRIPTION_ID`` is optional so a portable MCP installation can
+    start and perform Foundry-only discovery before the user selects a
+    subscription. Subscription-scoped Azure Resource Manager tools require it
+    at client construction time. Numeric variables are parsed and validated through
     ``_parse_int`` / ``_parse_float`` so that misconfigured deployments fail
     fast with a descriptive ``ConfigError`` rather than silently using zero or
     negative values.
@@ -108,14 +116,12 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         A frozen ``Settings`` dataclass populated from the resolved environment.
 
     Raises:
-        ConfigError: When ``AZURE_SUBSCRIPTION_ID`` is missing or any numeric
+        ConfigError: When credential fields are incomplete or a numeric
                      variable contains an invalid value.
     """
     resolved = env or os.environ
 
-    subscription_id = resolved.get("AZURE_SUBSCRIPTION_ID", "").strip()
-    if not subscription_id:
-        raise ConfigError("AZURE_SUBSCRIPTION_ID is required.")
+    subscription_id = resolved.get("AZURE_SUBSCRIPTION_ID", "").strip() or None
 
     tenant_id = resolved.get("AZURE_TENANT_ID") or None
     client_id = resolved.get("AZURE_CLIENT_ID") or None
@@ -144,6 +150,16 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         _DEFAULT_RETRY_BACKOFF_FACTOR,
         "RETRY_BACKOFF_FACTOR",
     )
+    auth_mode = (resolved.get("MCP_AUTH_MODE") or "local").strip().lower()
+    if auth_mode not in {"local", "hosted"}:
+        raise ConfigError("MCP_AUTH_MODE must be 'local' or 'hosted'.")
+    entra_api_client_id = resolved.get("ENTRA_API_CLIENT_ID") or None
+    entra_api_client_secret = resolved.get("ENTRA_API_CLIENT_SECRET") or None
+    mcp_public_url = resolved.get("MCP_PUBLIC_URL") or None
+    allowed = tuple(item.strip() for item in (resolved.get("ENTRA_ALLOWED_TENANT_IDS") or "").split(",") if item.strip())
+    mcp_allowed_hosts = tuple(item.strip() for item in (resolved.get("MCP_ALLOWED_HOSTS") or "").split(",") if item.strip())
+    if auth_mode == "hosted" and (not entra_api_client_id or not entra_api_client_secret or not mcp_public_url or not allowed):
+        raise ConfigError("Hosted mode requires ENTRA_API_CLIENT_ID, ENTRA_API_CLIENT_SECRET, ENTRA_ALLOWED_TENANT_IDS, and MCP_PUBLIC_URL.")
 
     return Settings(
         subscription_id=subscription_id,
@@ -156,4 +172,10 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         max_results=max_results,
         retry_total=retry_total,
         retry_backoff_factor=retry_backoff_factor,
+        auth_mode=auth_mode,
+        entra_api_client_id=entra_api_client_id,
+        entra_api_client_secret=entra_api_client_secret,
+        entra_allowed_tenant_ids=allowed,
+        mcp_public_url=mcp_public_url,
+        mcp_allowed_hosts=mcp_allowed_hosts,
     )

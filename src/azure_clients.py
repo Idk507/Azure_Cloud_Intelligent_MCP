@@ -10,6 +10,7 @@ from .config import Settings, load_settings
 if TYPE_CHECKING:  # pragma: no cover
     from azure.mgmt.web import WebSiteManagementClient
     from azure.mgmt.containerservice import ContainerServiceClient
+    from azure.mgmt.appcontainers import ContainerAppsAPIClient
     from azure.mgmt.compute import ComputeManagementClient
     from azure.mgmt.cognitiveservices import CognitiveServicesManagementClient
     from azure.mgmt.keyvault import KeyVaultManagementClient
@@ -35,6 +36,7 @@ class AzureClients:
     ai_foundry: Any = None
     aks: Any = None
     appservice: Any = None
+    containerapps: Any = None
     sql: Any = None
     cosmos: Any = None
     ml: Any = None
@@ -76,6 +78,7 @@ def _build_retry_policy(settings: Settings):
 def create_azure_clients(settings: Settings) -> AzureClients:
     from azure.mgmt.web import WebSiteManagementClient
     from azure.mgmt.containerservice import ContainerServiceClient
+    from azure.mgmt.appcontainers import ContainerAppsAPIClient
     """Instantiate and bundle all Azure SDK management clients.
 
     Builds a credential via ``build_credential``, constructs a shared retry
@@ -102,6 +105,11 @@ def create_azure_clients(settings: Settings) -> AzureClients:
     from azure.mgmt.authorization import AuthorizationManagementClient
     from azure.mgmt.resource.policy import PolicyClient
     from azure.mgmt.policyinsights import PolicyInsightsClient
+
+    if not settings.subscription_id:
+        raise ValueError(
+            "No Azure subscription is selected. Set AZURE_SUBSCRIPTION_ID before using subscription-scoped tools."
+        )
 
     credential = build_credential(settings)
     retry_policy = _build_retry_policy(settings)
@@ -162,9 +170,14 @@ def create_azure_clients(settings: Settings) -> AzureClients:
         settings.subscription_id,
         **client_kwargs,
     )
+    containerapps_client = ContainerAppsAPIClient(
+        credential,
+        settings.subscription_id,
+        **client_kwargs,
+    )
     authorization_client = AuthorizationManagementClient(credential, settings.subscription_id, **client_kwargs)
     policy_client = PolicyClient(credential, settings.subscription_id, **client_kwargs)
-    policy_insights_client = PolicyInsightsClient(credential, **client_kwargs)
+    policy_insights_client = PolicyInsightsClient(credential, settings.subscription_id, **client_kwargs)
     from .foundry_adapter import FoundryAgentServiceAdapter
     from .resource_graph_adapter import AzureResourceGraphAdapter
 
@@ -181,6 +194,7 @@ def create_azure_clients(settings: Settings) -> AzureClients:
         ai_foundry=FoundryAgentServiceAdapter(),
         aks=aks_client,
         appservice=appservice_client,
+        containerapps=containerapps_client,
         resource_graph=AzureResourceGraphAdapter(credential),
         authorization=authorization_client,
         policy=policy_client,
@@ -199,13 +213,18 @@ def get_azure_clients() -> AzureClients:
     Returns:
         The singleton ``AzureClients`` instance for the current process.
     """
+    settings = load_settings()
+    # OBO credentials are bound to the authenticated request. Never cache them
+    # process-wide or let one user's identity serve another user's tool call.
+    if settings.auth_mode == "hosted":
+        return create_azure_clients(settings)
+
     global _cached_clients
     if _cached_clients is not None:
         return _cached_clients
 
     with _clients_lock:
         if _cached_clients is None:
-            settings = load_settings()
             _cached_clients = create_azure_clients(settings)
 
     return _cached_clients

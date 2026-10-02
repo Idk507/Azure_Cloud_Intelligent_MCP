@@ -13,14 +13,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.txt
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
       - name: Compile
         run: python -m compileall src tests azure scripts
       - name: Test
         run: python -m pytest -q
+      - name: Validate diff whitespace
+        run: git diff --check HEAD^ HEAD
+      - name: Validate Bicep
+        uses: azure/cli@v2
+        with:
+          inlineScript: az bicep build --file infra/main.bicep --stdout > /dev/null
       - name: Build container
         run: docker build --tag azure-cloud-intelligence-mcp:ci .

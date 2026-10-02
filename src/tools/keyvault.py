@@ -3,10 +3,12 @@ from __future__ import annotations
 import logging
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 from pydantic import ValidationError
 
 from .. import azure_clients
+from ..auth import build_credential
 from ..config import load_settings
 from ..monitor import audit_tool_call
 from ..tool_registry import get_tool_metadata
@@ -15,6 +17,46 @@ from ..utils.runtime import run_with_timeout
 from ..validation import PaginationInput, ResourceGroupInput, to_validation_error_payload
 
 logger = logging.getLogger(__name__)
+
+
+def _secret_client(vault_uri: str) -> Any:
+    """Create a Key Vault data-plane client only for metadata enumeration."""
+    from azure.keyvault.secrets import SecretClient
+
+    return SecretClient(vault_url=vault_uri, credential=build_credential(load_settings()))
+
+
+def list_key_vault_secret_metadata(vault_uri: str, limit: int | None = None) -> dict[str, Any]:
+    """List Key Vault secret properties without retrieving secret values or tags."""
+    started = time.perf_counter()
+    tool_name = "list_key_vault_secret_metadata"
+    metadata = get_tool_metadata(tool_name)
+    try:
+        parsed = urlparse(vault_uri.strip())
+        if parsed.scheme != "https" or not parsed.hostname or not parsed.hostname.endswith(".vault.azure.net") or parsed.path not in ("", "/"):
+            raise ValueError("vault_uri must be an HTTPS Azure Key Vault URI.")
+        PaginationInput(limit=limit)
+        max_results = min(limit or load_settings().max_results, load_settings().max_results)
+        properties = run_with_timeout(lambda: list(_secret_client(vault_uri.strip()).list_properties_of_secrets()), load_settings().request_timeout_seconds)
+        secrets = [
+            {
+                "id": getattr(item, "id", None),
+                "name": getattr(item, "name", None),
+                "enabled": getattr(item, "enabled", None),
+                "created_on": str(getattr(item, "created_on", "")) or None,
+                "updated_on": str(getattr(item, "updated_on", "")) or None,
+                "expires_on": str(getattr(item, "expires_on", "")) or None,
+            }
+            for item in properties[:max_results]
+        ]
+        audit_tool_call(logger, tool_name=tool_name, status="success", duration_ms=round((time.perf_counter() - started) * 1000, 2), safety_class=metadata.safety_class.value, target_context={"vault_uri": vault_uri, "limit": limit})
+        return {"ok": True, "vault_uri": vault_uri.strip(), "count": len(secrets), "truncated": len(properties) > max_results, "secrets": secrets, "values_included": False}
+    except (ValidationError, ValueError) as exc:
+        return to_validation_error_payload(exc) if isinstance(exc, ValidationError) else {"ok": False, "error": {"code": "VALIDATION_ERROR", "message": str(exc)}}
+    except Exception as exc:  # pragma: no cover - service failures are normalized
+        error = as_tool_error(exc)
+        audit_tool_call(logger, tool_name=tool_name, status="error", duration_ms=round((time.perf_counter() - started) * 1000, 2), safety_class=metadata.safety_class.value, target_context={"vault_uri": vault_uri, "limit": limit}, error_code=error["error"]["code"])
+        return error
 
 
 def list_key_vaults(resource_group: str, limit: int | None = None) -> dict[str, Any]:

@@ -121,6 +121,47 @@ def _resolve_limit(limit: int | None) -> int:
     return min(parsed.limit, settings.max_results)
 
 
+def list_storage_containers(account_name: str, limit: int | None = None) -> dict[str, Any]:
+    """List bounded container properties without blob contents or metadata values."""
+    started = time.perf_counter()
+    tool_name = "list_storage_containers"
+    metadata = get_tool_metadata(tool_name)
+    try:
+        validated = StorageAccountCreateInput(resource_group="inventory", account_name=account_name, location="eastus")
+        PaginationInput(limit=limit)
+        max_results = _resolve_limit(limit)
+        containers = run_with_timeout(lambda: list(_build_blob_service_client(validated.account_name).list_containers()), load_settings().request_timeout_seconds)
+        safe = [{"name": getattr(item, "name", None), "last_modified": str(getattr(item, "last_modified", "")) or None, "public_access": getattr(item, "public_access", None)} for item in containers[:max_results]]
+        audit_tool_call(logger, tool_name=tool_name, status="success", duration_ms=round((time.perf_counter() - started) * 1000, 2), safety_class=metadata.safety_class.value, target_context={"account_name": validated.account_name, "limit": limit})
+        return {"ok": True, "account_name": validated.account_name, "count": len(safe), "truncated": len(containers) > max_results, "containers": safe}
+    except (ValidationError, ValueError) as exc:
+        return to_validation_error_payload(exc) if isinstance(exc, ValidationError) else {"ok": False, "error": {"code": "VALIDATION_ERROR", "message": str(exc)}}
+    except Exception as exc:  # pragma: no cover
+        error = as_tool_error(exc)
+        audit_tool_call(logger, tool_name=tool_name, status="error", duration_ms=round((time.perf_counter() - started) * 1000, 2), safety_class=metadata.safety_class.value, target_context={"account_name": account_name, "limit": limit}, error_code=error["error"]["code"])
+        return error
+
+
+def get_storage_lifecycle_policy(resource_group: str, account_name: str) -> dict[str, Any]:
+    """Read a storage account lifecycle policy without modifying retention rules."""
+    started = time.perf_counter()
+    tool_name = "get_storage_lifecycle_policy"
+    metadata = get_tool_metadata(tool_name)
+    try:
+        validated = StorageAccountCreateInput(resource_group=resource_group, account_name=account_name, location="eastus")
+        policy = run_with_timeout(lambda: azure_clients.get_azure_clients().storage.management_policies.get(validated.resource_group, validated.account_name), load_settings().request_timeout_seconds)
+        rules = getattr(getattr(policy, "policy", None), "rules", None) or []
+        normalized = [{"name": getattr(rule, "name", None), "enabled": getattr(rule, "enabled", None), "type": getattr(rule, "type", None), "definition": getattr(rule, "definition", None)} for rule in rules]
+        audit_tool_call(logger, tool_name=tool_name, status="success", duration_ms=round((time.perf_counter() - started) * 1000, 2), safety_class=metadata.safety_class.value, target_context={"resource_group": validated.resource_group, "account_name": validated.account_name})
+        return {"ok": True, "resource_group": validated.resource_group, "account_name": validated.account_name, "id": getattr(policy, "id", None), "name": getattr(policy, "name", None), "rules": normalized}
+    except (ValidationError, ValueError) as exc:
+        return to_validation_error_payload(exc) if isinstance(exc, ValidationError) else {"ok": False, "error": {"code": "VALIDATION_ERROR", "message": str(exc)}}
+    except Exception as exc:  # pragma: no cover
+        error = as_tool_error(exc)
+        audit_tool_call(logger, tool_name=tool_name, status="error", duration_ms=round((time.perf_counter() - started) * 1000, 2), safety_class=metadata.safety_class.value, target_context={"resource_group": resource_group, "account_name": account_name}, error_code=error["error"]["code"])
+        return error
+
+
 def list_storage_accounts(resource_group: str, limit: int | None = None) -> dict[str, Any]:
     """List storage accounts in a given resource group.
 

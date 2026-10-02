@@ -1,9 +1,13 @@
 # Azure Cloud Intelligence MCP
 
-Phase 1 and Phase 2 are completed. Phase 3 is complete, and Phase 4 advanced domain foundations are implemented.
+## Start here
+
+For a complete fresh-clone walkthrough—including Azure sign-in, local validation, ngrok, Codex,
+and ChatGPT—follow [SETUP.md](SETUP.md). It is the recommended installation guide for individual users.
+
 
 The server does not claim universal Azure CRUD. Each service exposes only the operations listed in
-the tool inventory and [docs/azure-crud-matrix.md](docs/azure-crud-matrix.md); unconfigured service
+the tool inventory and [docs/phases/azure-crud-matrix.md](docs/phases/azure-crud-matrix.md); unconfigured service
 adapters fail closed.
 
 Generic ARM control-plane CRUD is available by resource ID through `get_azure_resource`,
@@ -30,7 +34,23 @@ Use `preview_arm_template_deployment(resource_group, deployment_name, template, 
 to run ARM what-if before reviewing a change. It is a prediction only; it never deploys the
 template. Use `get_arm_deployment_operation_status` to inspect a named deployment operation.
 
-## Current Scope (Phase 1 + Phase 3 Slice 3.1)
+## Current Scope
+
+The running server's `tools.list` response is the authoritative tool inventory. It includes
+bounded Azure Resource Graph and ARM discovery, HITL-protected generic ARM and supported
+provider mutations, governance inspection, Foundry project operations, observability, and
+read-only service slices. The full operation/RBAC matrix is maintained in
+[docs/phases/azure-crud-matrix.md](docs/phases/azure-crud-matrix.md) and
+[docs/security-rbac.md](docs/security-rbac.md).
+
+Notable provider-specific inventory includes:
+
+- Key Vault secret metadata only (never secret values), Storage containers and lifecycle policies,
+  AKS node pools, App Service slots, and Container Apps, environments, and revision health.
+- Azure OpenAI deployments plus Foundry models, connections, agents, threads, runs, evaluations,
+  and tracing readiness, with sensitive content excluded by default.
+
+The foundational tool categories are:
 
 - `list_resource_groups`
 - `query_azure_resource_graph(query, subscriptions, limit)`
@@ -78,17 +98,39 @@ approval receipt before any agent mutation is submitted.
 
 - Python 3.11+
 - Azure CLI authenticated locally (`az login`)
-- Environment variable: `AZURE_SUBSCRIPTION_ID`
+- Azure CLI authenticated locally (`az login`), a managed identity, or a service principal configured through Azure Identity.
+- `AZURE_SUBSCRIPTION_ID` for subscription-scoped Azure Resource Manager tools. It is optional when using Foundry-only tools.
 
 ## Quick Start
 
 1. Create and activate a virtual environment.
 2. Install dependencies:
    - `python -m pip install -r requirements.txt`
-3. Set required environment variables:
-   - `AZURE_SUBSCRIPTION_ID`
+3. Set the target subscription before using subscription-scoped tools:
+   - `AZURE_SUBSCRIPTION_ID=<your-subscription-id>`
+   - If unknown, call `list_accessible_subscriptions` first, then select an ID explicitly. The server never selects one automatically.
 4. Run the server:
    - `python -m src.app`
+
+## Docker quick start
+
+Docker is an alternative to the Python virtual-environment setup. It is intended for a managed
+identity (when deployed on Azure) or an Azure service principal passed in by the container runtime.
+It does **not** reuse a host `az login` session automatically.
+
+```powershell
+docker build --tag azure-cloud-intelligence-mcp:local .
+$env:AZURE_SUBSCRIPTION_ID = '<your-subscription-id>'
+$env:AZURE_TENANT_ID = '<your-tenant-id>'
+$env:AZURE_CLIENT_ID = '<your-service-principal-client-id>'
+$env:AZURE_CLIENT_SECRET = '<your-service-principal-secret>'
+docker run --rm -p 8000:8000 `
+  -e AZURE_SUBSCRIPTION_ID -e AZURE_TENANT_ID -e AZURE_CLIENT_ID -e AZURE_CLIENT_SECRET `
+  azure-cloud-intelligence-mcp:local
+```
+
+Never put these values in the image, Dockerfile, repository, or a committed `.env` file. For a
+personal laptop setup using `az login`, use the Python path in [SETUP.md](SETUP.md) instead.
 
 ## Endpoints
 
@@ -110,5 +152,14 @@ If dependency installation is blocked by environment policy, run the smoke test:
 - `python scripts/smoke_test_phase1.py`
 
 See [docs/tunnel-options.md](docs/tunnel-options.md) for HTTPS exposure options.
-See [docs/environment-readiness.md](docs/environment-readiness.md) for readiness details.
-See [docs/phase5-deployment-baseline.md](docs/phase5-deployment-baseline.md) for the Container Apps and CI baseline.
+See [docs/phases/environment-readiness.md](docs/phases/environment-readiness.md) for readiness details.
+See [docs/phases/phase5-deployment-baseline.md](docs/phases/phase5-deployment-baseline.md) for the Container Apps and CI baseline.
+For the local-Codex versus hosted-ChatGPT identity model required for publication, see
+[docs/portable-plugin-architecture.md](docs/portable-plugin-architecture.md).
+
+## Self-hosting and MCP clients
+
+- [Self-hosted quick start](docs/self-hosted-quickstart.md)
+- [ChatGPT private connector](docs/chatgpt-private-connector.md)
+- [Codex local connector](docs/codex-local-connector.md)
+- [Self-hosted security checklist](docs/self-hosted-security.md)

@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import logging
 import unittest
+from unittest.mock import patch
 
+import src.monitor as monitor
 from src.monitor import JsonLogFormatter, audit_tool_call, emit_tool_lifecycle_event, register_tool_lifecycle_hook, reset_telemetry, set_correlation_id, telemetry_snapshot
 
 
@@ -26,6 +28,43 @@ class MonitorTestCase(unittest.TestCase):
         self.assertEqual(snapshot["metrics"][0]["calls"], 1)
         self.assertNotIn("target_context", snapshot["metrics"][0])
         self.assertNotIn("resource_id", snapshot["metrics"][0])
+
+    def test_trace_span_uses_only_bounded_safe_attributes(self) -> None:
+        attributes = {}
+        class Span:
+            def set_attribute(self, key, value): attributes[key] = value
+        class Context:
+            def __enter__(self): return Span()
+            def __exit__(self, *args): return None
+        class Tracer:
+            def start_as_current_span(self, name): return Context()
+        class Trace:
+            def get_tracer(self, name): return Tracer()
+        with patch.object(monitor, "trace", Trace()):
+            audit_tool_call(logging.getLogger("test.monitor.trace"), tool_name="example", status="success", duration_ms=5, safety_class="read_only", target_context={"resource_id": "/secret"})
+        self.assertEqual(attributes["azure_mcp.tool_name"], "example")
+        self.assertNotIn("resource_id", attributes)
+
+    def test_otlp_metrics_use_only_bounded_labels(self) -> None:
+        measurements = []
+
+        class Counter:
+            def add(self, value, labels): measurements.append(("count", value, labels))
+
+        class Histogram:
+            def record(self, value, labels): measurements.append(("duration", value, labels))
+
+        with patch.object(monitor, "_tool_call_counter", Counter()), patch.object(monitor, "_tool_duration_histogram", Histogram()):
+            audit_tool_call(logging.getLogger("test.monitor.metrics_export"), tool_name="example", status="success", duration_ms=5, safety_class="read_only", target_context={"resource_id": "/secret"})
+
+        self.assertEqual(len(measurements), 2)
+        self.assertEqual(measurements[0][2], {"tool_name": "example", "status": "success", "safety_class": "read_only"})
+
+    def test_tracing_is_disabled_without_an_otlp_endpoint(self) -> None:
+        with patch.object(monitor, "_tracing_configured", False), patch.dict(
+            "os.environ", {"OTEL_EXPORTER_OTLP_ENDPOINT": ""}, clear=False
+        ):
+            self.assertFalse(monitor.configure_tracing())
 
     def test_lifecycle_hook_receives_redacted_correlated_payload(self) -> None:
         received = []
